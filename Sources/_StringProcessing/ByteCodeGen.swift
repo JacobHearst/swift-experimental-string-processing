@@ -16,6 +16,7 @@ internal import _RegexParser
 
 extension Compiler {
   struct ByteCodeGen {
+    var reverse = false
     var options: MatchingOptions
     var builder = MEProgram.Builder()
     /// A Boolean indicating whether the first matchable atom has been emitted.
@@ -135,6 +136,36 @@ fileprivate extension Compiler.ByteCodeGen {
     for c in s { emitCharacter(c) }
   }
 
+  mutating func emitReverseQuotedLiteral(_ s: String) {
+    guard options.semanticLevel == .graphemeCluster else {
+      for char in s {
+        for scalar in char.unicodeScalars.reversed() {
+          emitMatchScalar(scalar)
+        }
+      }
+      return
+    }
+
+    // Fast path for eliding boundary checks for an all ascii quoted literal
+    if optimizationsEnabled && s.allSatisfy(\.isASCII) && !s.isEmpty {
+      builder.buildReverseUnicodeScalar(1)
+      let lastIdx = s.unicodeScalars.indices.first!
+      for idx in s.unicodeScalars.indices.reversed() {
+        let boundaryCheck = idx == lastIdx
+        let scalar = s.unicodeScalars[idx]
+        if options.isCaseInsensitive && scalar.properties.isCased {
+          builder.buildReverseMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck)
+        } else {
+          builder.buildReverseMatchScalar(scalar, boundaryCheck: boundaryCheck)
+        }
+      }
+      return
+    }
+
+    builder.buildReverse(1)
+    for c in s.reversed() { emitCharacter(c) }
+  }
+
   mutating func emitBackreference(
     _ ref: AST.Reference
   ) throws {
@@ -189,16 +220,30 @@ fileprivate extension Compiler.ByteCodeGen {
       builder.buildMatchScalar(s, boundaryCheck: false)
     }
   }
-  
+
+  mutating func emitReverseMatchScalar(_ s: UnicodeScalar) {
+    assert(options.semanticLevel == .unicodeScalar)
+    builder.buildReverseUnicodeScalar(1)
+    if options.isCaseInsensitive && s.properties.isCased {
+      builder.buildReverseMatchScalarCaseInsensitive(s, boundaryCheck: false)
+    } else {
+      builder.buildReverseMatchScalar(s, boundaryCheck: false)
+    }
+  }
+
   mutating func emitCharacter(_ c: Character) {
     // Unicode scalar mode matches the specific scalars that comprise a character
     if options.semanticLevel == .unicodeScalar {
       for scalar in c.unicodeScalars {
-        emitMatchScalar(scalar)
+        if reverse {
+          emitReverseMatchScalar(scalar)
+        } else {
+          emitMatchScalar(scalar)
+        }
       }
       return
     }
-    
+
     if options.isCaseInsensitive && c.isCased {
       if optimizationsEnabled && c.isASCII {
         // c.isCased ensures that c is not CR-LF,
@@ -208,20 +253,37 @@ fileprivate extension Compiler.ByteCodeGen {
           c.unicodeScalars.last!,
           boundaryCheck: true)
       } else {
-        builder.buildMatch(c, isCaseInsensitive: true)
+        if reverse {
+          builder.buildReverse(1)
+          builder.buildReverseMatch(c, isCaseInsensitive: true)
+        } else {
+          builder.buildMatch(c, isCaseInsensitive: true)
+        }
       }
       return
     }
-    
+
     if optimizationsEnabled && c.isASCII {
       let lastIdx = c.unicodeScalars.indices.last!
       for idx in c.unicodeScalars.indices {
-        builder.buildMatchScalar(c.unicodeScalars[idx], boundaryCheck: idx == lastIdx)
+        let scalar = c.unicodeScalars[idx]
+        let boundaryCheck = idx == lastIdx
+        if reverse {
+          builder.buildReverseUnicodeScalar(1)
+          builder.buildReverseMatchScalar(scalar, boundaryCheck: boundaryCheck)
+        } else {
+          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck)
+        }
       }
       return
     }
-      
-    builder.buildMatch(c, isCaseInsensitive: false)
+
+    if reverse {
+      builder.buildReverse(1)
+      builder.buildReverseMatch(c, isCaseInsensitive: false)
+    } else {
+      builder.buildMatch(c, isCaseInsensitive: false)
+    }
   }
 
   mutating func emitAny() {
@@ -291,7 +353,7 @@ fileprivate extension Compiler.ByteCodeGen {
     try body(&self, elements.last!)
     builder.label(done)
   }
-  
+
   mutating func emitAlternation(
     _ children: [DSLTree.Node]
   ) throws {
@@ -308,7 +370,7 @@ fileprivate extension Compiler.ByteCodeGen {
     try emitNode(node)
   }
 
-  mutating func emitPositiveLookahead(_ child: DSLTree.Node) throws {
+  mutating func emitPositiveLookaround(_ child: DSLTree.Node) throws {
     /*
       save(restoringAt: success)
       save(restoringAt: intercept)
@@ -336,8 +398,8 @@ fileprivate extension Compiler.ByteCodeGen {
 
     builder.label(success)
   }
-  
-  mutating func emitNegativeLookahead(_ child: DSLTree.Node) throws {
+
+  mutating func emitNegativeLookaround(_ child: DSLTree.Node) throws {
     /*
       save(restoringAt: success)
       save(restoringAt: intercept)
@@ -365,19 +427,18 @@ fileprivate extension Compiler.ByteCodeGen {
 
     builder.label(success)
   }
-  
+
   mutating func emitLookaround(
     _ kind: (forwards: Bool, positive: Bool),
     _ child: DSLTree.Node
   ) throws {
-    guard kind.forwards else {
-      throw Unsupported("backwards assertions")
-    }
+    reverse = !kind.forwards
     if kind.positive {
-      try emitPositiveLookahead(child)
+      try emitPositiveLookaround(child)
     } else {
-      try emitNegativeLookahead(child)
+      try emitNegativeLookaround(child)
     }
+    reverse = false
   }
 
   mutating func emitAtomicNoncapturingGroup(
@@ -438,15 +499,14 @@ fileprivate extension Compiler.ByteCodeGen {
     options.beginScope()
     defer { options.endScope() }
 
-    if let lookaround = kind.lookaroundKind {
-      try emitLookaround(lookaround, child)
-      return
-    }
-
     switch kind {
     case .lookahead, .negativeLookahead,
         .lookbehind, .negativeLookbehind:
-      throw Unreachable("TODO: reason")
+      guard let lookaround = kind.lookaroundKind else {
+        throw Unreachable("TODO: reason")
+      }
+
+      try emitLookaround(lookaround, child)
 
     case .capture, .namedCapture, .balancedCapture:
       throw Unreachable("These should produce a capture node")
@@ -457,7 +517,7 @@ fileprivate extension Compiler.ByteCodeGen {
       }
       options.apply(optionSequence)
       try emitNode(child)
-      
+
     case .atomicNonCapturing:
       try emitAtomicNoncapturingGroup(child)
 
@@ -734,7 +794,12 @@ fileprivate extension Compiler.ByteCodeGen {
       guard let bitset = ccc.asAsciiBitset(options) else {
         return false
       }
-      builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+      if reverse {
+        builder.buildReverse(1)
+        builder.buildReverseQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+      } else {
+        builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+      }
 
     case .atom(let atom):
       switch atom {
@@ -743,22 +808,143 @@ fileprivate extension Compiler.ByteCodeGen {
         guard let val = c._singleScalarAsciiValue else {
           return false
         }
-        builder.buildQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        if reverse {
+          builder.buildReverse(1)
+          builder.buildReverseQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        } else {
+          builder.buildQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        }
 
       case .any:
-        builder.buildQuantifyAny(
+        if reverse {
+          builder.buildReverse(1)
+          builder.buildReverseQuantifyAny(
+            matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        } else {
+          builder.buildQuantifyAny(
+            matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        }
+      case .anyNonNewline:
+        if reverse {
+          builder.buildReverse(1)
+          builder.buildReverseQuantifyAny(
+            matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        } else {
+          builder.buildQuantifyAny(
+            matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        }
+      case .dot:
+        if reverse {
+          builder.buildReverse(1)
+          builder.buildReverseQuantifyAny(
+            matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        } else {
+          builder.buildQuantifyAny(
+            matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        }
+
+      case .characterClass(let cc):
+        // Custom character class that consumes a single grapheme
+        let model = cc.asRuntimeModel(options)
+        if reverse {
+          builder.buildReverse(1)
+          builder.buildReverseQuantify(
+            model: model,
+            kind,
+            minTrips,
+            maxExtraTrips,
+            isScalarSemantics: isScalarSemantics
+          )
+        } else {
+          builder.buildQuantify(
+            model: model,
+            kind,
+            minTrips,
+            maxExtraTrips,
+            isScalarSemantics: isScalarSemantics
+          )
+        }
+      default:
+        return false
+      }
+    case .convertedRegexLiteral(let node, _):
+      if reverse {
+        return tryEmitFastReverseQuant(node, kind, minTrips, maxExtraTrips)
+      } else {
+        return tryEmitFastQuant(node, kind, minTrips, maxExtraTrips)
+      }
+    case .nonCapturingGroup(let groupKind, let node):
+      // .nonCapture nonCapturingGroups are ignored during compilation
+      guard groupKind.ast == .nonCapture else {
+        return false
+      }
+      if reverse {
+        return tryEmitFastReverseQuant(node, kind, minTrips, maxExtraTrips)
+      } else {
+        return tryEmitFastQuant(node, kind, minTrips, maxExtraTrips)
+      }
+    default:
+      return false
+    }
+    return true
+  }
+
+  /// Specialized quantification instruction for repetition of certain nodes in grapheme semantic mode
+  /// Allowed nodes are:
+  /// - single ascii scalar .char
+  /// - ascii .customCharacterClass
+  /// - single grapheme consumgin built in character classes
+  /// - .any, .anyNonNewline, .dot
+  mutating func tryEmitFastReverseQuant(
+    _ child: DSLTree.Node,
+    _ kind: AST.Quantification.Kind,
+    _ minTrips: Int,
+    _ maxExtraTrips: Int?
+  ) -> Bool {
+    let isScalarSemantics = options.semanticLevel == .unicodeScalar
+    guard optimizationsEnabled
+            && minTrips <= QuantifyPayload.maxStorableTrips
+            && maxExtraTrips ?? 0 <= QuantifyPayload.maxStorableTrips
+            && kind != .reluctant else {
+      return false
+    }
+    switch child {
+    case .customCharacterClass(let ccc):
+      // ascii only custom character class
+      guard let bitset = ccc.asAsciiBitset(options) else {
+        return false
+      }
+      builder.buildReverse(1)
+      builder.buildReverseQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+
+    case .atom(let atom):
+      switch atom {
+      case .char(let c):
+        // Single scalar ascii value character
+        guard let val = c._singleScalarAsciiValue else {
+          return false
+        }
+        builder.buildReverse(1)
+        builder.buildReverseQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+
+      case .any:
+        builder.buildReverse(1)
+        builder.buildReverseQuantifyAny(
           matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
       case .anyNonNewline:
-        builder.buildQuantifyAny(
+        builder.buildReverse(1)
+        builder.buildReverseQuantifyAny(
           matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
       case .dot:
-        builder.buildQuantifyAny(
+        builder.buildReverse(1)
+        builder.buildReverseQuantifyAny(
           matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
 
       case .characterClass(let cc):
         // Custom character class that consumes a single grapheme
         let model = cc.asRuntimeModel(options)
-        builder.buildQuantify(
+        builder.buildReverse(1)
+        builder.buildReverseQuantify(
           model: model,
           kind,
           minTrips,
@@ -768,18 +954,19 @@ fileprivate extension Compiler.ByteCodeGen {
         return false
       }
     case .convertedRegexLiteral(let node, _):
-      return tryEmitFastQuant(node, kind, minTrips, maxExtraTrips)
+      return tryEmitFastReverseQuant(node, kind, minTrips, maxExtraTrips)
     case .nonCapturingGroup(let groupKind, let node):
       // .nonCapture nonCapturingGroups are ignored during compilation
       guard groupKind.ast == .nonCapture else {
         return false
       }
-      return tryEmitFastQuant(node, kind, minTrips, maxExtraTrips)
+      return tryEmitFastReverseQuant(node, kind, minTrips, maxExtraTrips)
     default:
       return false
     }
     return true
   }
+
 
   /// Coalesce any adjacent scalar members in a custom character class together.
   /// This is required in order to produce correct grapheme matching behavior.
@@ -914,7 +1101,7 @@ fileprivate extension Compiler.ByteCodeGen {
     result.append(contentsOf: scalars.map { .atom(.scalar($0)) })
     return result
   }
-  
+
   func coalescingCustomCharacterClass(
     _ ccc: DSLTree.CustomCharacterClass
   ) -> DSLTree.CustomCharacterClass {
@@ -942,7 +1129,7 @@ fileprivate extension Compiler.ByteCodeGen {
       }
     }
   }
-  
+
   mutating func emitCCCMember(
     _ member: DSLTree.CustomCharacterClass.Member
   ) throws {
@@ -965,7 +1152,7 @@ fileprivate extension Compiler.ByteCodeGen {
       builder.buildConsume(by: consumer)
     case .trivia:
       return
-      
+
     // TODO: Can we decide when it's better to try `rhs` first?
     // Intersection is trivial, since failure on either side propagates:
     // - store current position
@@ -978,7 +1165,7 @@ fileprivate extension Compiler.ByteCodeGen {
       try emitCustomCharacterClass(lhs)
       builder.buildRestorePosition(from: r)
       try emitCustomCharacterClass(rhs)
-      
+
     // TODO: Can we decide when it's better to try `rhs` first?
     // For subtraction, failure in `lhs` propagates, while failure in `rhs` is
     // swallowed/reversed:
@@ -1000,7 +1187,7 @@ fileprivate extension Compiler.ByteCodeGen {
       builder.buildClear()                // clears 'end'
       builder.buildFail()                 // this failure propagates outward
       builder.label(end)
-    
+
     // Symmetric difference always requires executing both `rhs` and `lhs`.
     // Execute each, ignoring failure and storing the resulting position in a
     // register. If those results are equal, fail. If they're different, use
@@ -1041,18 +1228,18 @@ fileprivate extension Compiler.ByteCodeGen {
       builder.buildClear()
       builder.label(lhsFail)
       builder.buildMoveCurrentPosition(into: r1)
-      
+
       builder.buildRestorePosition(from: r0)
       builder.buildSave(rhsFail)
       try emitCustomCharacterClass(rhs)
       builder.buildClear()
       builder.label(rhsFail)
       builder.buildMoveCurrentPosition(into: r2)
-      
+
       // If r1 == r2, then fail
       builder.buildRestorePosition(from: r1)
       builder.buildCondBranch(to: fail, ifSamePositionAs: r2)
-      
+
       // If r1 == r0, then move to r2 before ending
       builder.buildCondBranch(to: advance, ifSamePositionAs: r0)
       builder.buildBranch(to: end)
@@ -1062,10 +1249,10 @@ fileprivate extension Compiler.ByteCodeGen {
 
       builder.label(fail)
       builder.buildFail()
-      builder.label(end)      
+      builder.label(end)
     }
   }
-  
+
   mutating func emitCustomCharacterClass(
     _ ccc: DSLTree.CustomCharacterClass
   ) throws {
@@ -1091,7 +1278,7 @@ fileprivate extension Compiler.ByteCodeGen {
       updatedCCC = ccc
     }
     let filteredMembers = updatedCCC.members.filter({!$0.isOnlyTrivia})
-    
+
     if updatedCCC.isInverted {
       // inverted
       // custom character class: p0 | p1 | ... | pn
@@ -1128,7 +1315,7 @@ fileprivate extension Compiler.ByteCodeGen {
       builder.buildClear()
       builder.buildFail()
       builder.label(done)
-      
+
       // Consume a single unit for the inverted ccc
       switch options.semanticLevel {
       case .graphemeCluster:
@@ -1161,7 +1348,7 @@ fileprivate extension Compiler.ByteCodeGen {
         return [node]
       }
     }
-    let children = children
+    var children = children
       .flatMap(flatten)
       .coalescing(with: "", into: DSLTree.Node.quotedLiteral) { str, node in
         switch node {
@@ -1180,6 +1367,9 @@ fileprivate extension Compiler.ByteCodeGen {
           return false
         }
       }
+    if reverse {
+      children.reverse()
+    }
     for child in children {
       try emitConcatenationComponent(child)
     }
@@ -1188,7 +1378,6 @@ fileprivate extension Compiler.ByteCodeGen {
   @discardableResult
   mutating func emitNode(_ node: DSLTree.Node) throws -> ValueRegister? {
     switch node {
-      
     case let .orderedChoice(children):
       try emitAlternation(children)
 
@@ -1234,7 +1423,7 @@ fileprivate extension Compiler.ByteCodeGen {
 
     case let .ignoreCapturesInTypedOutput(child):
       try emitNode(child)
-      
+
     case .conditional:
       throw Unsupported("Conditionals")
 
@@ -1256,7 +1445,11 @@ fileprivate extension Compiler.ByteCodeGen {
       try emitAtom(a)
 
     case let .quotedLiteral(s):
-      emitQuotedLiteral(s)
+      if reverse {
+        emitReverseQuotedLiteral(s)
+      } else {
+        emitQuotedLiteral(s)
+      }
 
     case let .convertedRegexLiteral(n, _):
       return try emitNode(n)
@@ -1324,6 +1517,51 @@ extension DSLTree.Node {
     default: return false
     }
   }
+
+  /// A Boolean value indicating whether this node reverses the match position
+  /// on a successful match.
+  ///
+  /// For example, an alternation like `(a|b|c)` always advances the position
+  /// by a character, but `(a|b|)` has an empty branch, which matches without
+  /// advancing.
+  var guaranteesBackwardProgress: Bool {
+    switch self {
+    case .orderedChoice(let children):
+      return children.allSatisfy { $0.guaranteesBackwardProgress }
+    case .concatenation(let children):
+      return children.contains(where: { $0.guaranteesBackwardProgress })
+    case .capture(_, _, let node, _):
+      return node.guaranteesBackwardProgress
+    case .nonCapturingGroup(let kind, let child):
+      switch kind.ast {
+      case .lookahead, .negativeLookahead, .lookbehind, .negativeLookbehind:
+        return false
+      default: return child.guaranteesBackwardProgress
+      }
+    case .atom(let atom):
+      switch atom {
+      case .changeMatchingOptions, .assertion: return false
+        // Captures may be nil so backreferences may be zero length matches
+      case .backreference: return false
+      default: return true
+      }
+    case .trivia, .empty:
+      return false
+    case .quotedLiteral(let string):
+      return !string.isEmpty
+    case .convertedRegexLiteral(let node, _):
+      return node.guaranteesBackwardProgress
+    case .consumer, .matcher:
+      // Allow zero width consumers and matchers
+      return false
+    case .customCharacterClass(let ccc):
+      return ccc.guaranteesBackwardProgress
+    case .quantification(let amount, _, let child):
+      let (atLeast, _) = amount.ast.bounds
+      return atLeast ?? 0 > 0 && child.guaranteesBackwardProgress
+    default: return false
+    }
+  }
 }
 
 extension DSLTree.CustomCharacterClass {
@@ -1340,6 +1578,26 @@ extension DSLTree.CustomCharacterClass {
         return lhs.guaranteesForwardProgress
       case let .symmetricDifference(lhs, rhs):
         return lhs.guaranteesForwardProgress && rhs.guaranteesForwardProgress
+      default:
+        return true
+      }
+    }
+    return false
+  }
+
+  /// We allow trivia into CustomCharacterClass, which could result in a CCC
+  /// that matches nothing, ie `(?x)[ ]`.
+  var guaranteesBackwardProgress: Bool {
+    for m in members {
+      switch m {
+      case .trivia:
+        continue
+      case let .intersection(lhs, rhs):
+        return lhs.guaranteesBackwardProgress && rhs.guaranteesBackwardProgress
+      case let .subtraction(lhs, _):
+        return lhs.guaranteesBackwardProgress
+      case let .symmetricDifference(lhs, rhs):
+        return lhs.guaranteesBackwardProgress && rhs.guaranteesBackwardProgress
       default:
         return true
       }
