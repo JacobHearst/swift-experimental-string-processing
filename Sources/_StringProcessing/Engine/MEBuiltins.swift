@@ -163,7 +163,10 @@ extension String {
   /// - Returns: The character at `pos`, bounded by `end`, if it exists, along
   ///   with the upper bound of that character. The upper bound is always
   ///   scalar-aligned.
-  func characterAndEnd(at pos: String.Index, limitedBy end: String.Index) -> (Character, String.Index)? {
+  func characterAndEnd(
+    at pos: String.Index,
+    limitedBy end: String.Index
+  ) -> (Character, characterEnd: String.Index)? {
     // FIXME: Sink into the stdlib to avoid multiple boundary calculations
     guard pos < end else { return nil }
     let next = index(after: pos)
@@ -182,7 +185,7 @@ extension String {
       : (substr.first!, substr.endIndex)
   }
 
-  /// Returns the character at `pos`, bounded by `start`, as well as the upper
+  /// Returns the character at `pos`, bounded by `start`, as well as the lower
   /// boundary of the returned character.
   ///
   /// This function handles loading a character from a string while respecting
@@ -202,9 +205,12 @@ extension String {
   ///   - pos: The position to load a character from.
   ///   - start: The limit for the character at `pos`.
   /// - Returns: The character at `pos`, bounded by `start`, if it exists, along
-  ///   with the upper bound of that character. The upper bound is always
+  ///   with the lower bound of that character. The lower bound is always
   ///   scalar-aligned.
-  func characterAndStart(at pos: String.Index, limitedBy start: String.Index) -> (Character, String.Index)? {
+  func characterAndStart(
+    at pos: String.Index,
+    limitedBy start: String.Index
+  ) -> (Character, characterStart: String.Index)? {
     // FIXME: Sink into the stdlib to avoid multiple boundary calculations
     guard pos > start else { return nil }
     let previous = index(before: pos)
