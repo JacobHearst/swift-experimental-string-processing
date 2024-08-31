@@ -109,10 +109,10 @@ fileprivate extension Compiler.ByteCodeGen {
   }
 
   mutating func emitQuotedLiteral(_ s: String) {
-    assert(!reverse)
     guard options.semanticLevel == .graphemeCluster else {
       for char in s {
-        for scalar in char.unicodeScalars {
+        let scalars: any Collection<UnicodeScalar> = reverse ? char.unicodeScalars.reversed() : char.unicodeScalars
+        for scalar in scalars {
           emitMatchScalar(scalar)
         }
       }
@@ -121,49 +121,27 @@ fileprivate extension Compiler.ByteCodeGen {
 
     // Fast path for eliding boundary checks for an all ascii quoted literal
     if optimizationsEnabled && s.allSatisfy(\.isASCII) && !s.isEmpty {
-      let lastIdx = s.unicodeScalars.indices.last!
-      for idx in s.unicodeScalars.indices {
-        let boundaryCheck = idx == lastIdx
+      let boundaryIdx = reverse ? s.unicodeScalars.indices.first! : s.unicodeScalars.indices.last!
+      let indices: any Collection<String.UnicodeScalarIndex> = reverse
+        ? s.unicodeScalars.indices.reversed()
+        : s.unicodeScalars.indices
+
+      for idx in indices {
+        let boundaryCheck = idx == boundaryIdx
         let scalar = s.unicodeScalars[idx]
         if options.isCaseInsensitive && scalar.properties.isCased {
-          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck, reverse: false)
+          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck, reverse: reverse)
         } else {
-          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck, reverse: false)
+          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck, reverse: reverse)
         }
       }
       return
     }
 
-    for c in s { emitCharacter(c) }
-  }
-
-  mutating func emitReverseQuotedLiteral(_ s: String) {
-    assert(reverse)
-    guard options.semanticLevel == .graphemeCluster else {
-      for char in s {
-        for scalar in char.unicodeScalars.reversed() {
-          emitMatchScalar(scalar)
-        }
-      }
-      return
+    let chars: any Collection<Character> = reverse ? s.reversed() : s
+    for char in chars {
+      emitCharacter(char)
     }
-
-    // Fast path for eliding boundary checks for an all ascii quoted literal
-    if optimizationsEnabled && s.allSatisfy(\.isASCII) && !s.isEmpty {
-      let lastIdx = s.unicodeScalars.indices.first!
-      for idx in s.unicodeScalars.indices.reversed() {
-        let boundaryCheck = idx == lastIdx
-        let scalar = s.unicodeScalars[idx]
-        if options.isCaseInsensitive && scalar.properties.isCased {
-          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck, reverse: true)
-        } else {
-          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck, reverse: true)
-        }
-      }
-      return
-    }
-
-    for c in s.reversed() { emitCharacter(c) }
   }
 
   mutating func emitBackreference(
@@ -1300,11 +1278,7 @@ fileprivate extension Compiler.ByteCodeGen {
       try emitAtom(a)
 
     case let .quotedLiteral(s):
-      if reverse {
-        emitReverseQuotedLiteral(s)
-      } else {
-        emitQuotedLiteral(s)
-      }
+      emitQuotedLiteral(s)
 
     case let .convertedRegexLiteral(n, _):
       return try emitNode(n)
