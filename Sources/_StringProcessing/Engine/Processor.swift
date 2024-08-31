@@ -301,15 +301,24 @@ extension Processor {
   mutating func reverseMatch(
     _ e: Element, isCaseInsensitive: Bool
   ) -> Bool {
-    guard let previous = input.reverseMatch(
+    let previous = input.reverseMatch(
       e,
       at: currentPosition,
       limitedBy: start,
       isCaseInsensitive: isCaseInsensitive
-    ) else {
-      signalFailure()
-      return false
+    )
+
+    guard let previous else {
+      guard currentPosition == start else {
+        // If there's no previous character, and we're not
+        // at the start of the string, the match has failed
+        signalFailure()
+        return false
+      }
+
+      return true
     }
+
     currentPosition = previous
     return true
   }
@@ -358,16 +367,23 @@ extension Processor {
     boundaryCheck: Bool,
     isCaseInsensitive: Bool
   ) -> Bool {
-    guard let previous = input.reverseMatchScalar(
+    let previous = input.reverseMatchScalar(
       s,
       at: currentPosition,
       limitedBy: start,
       boundaryCheck: boundaryCheck,
       isCaseInsensitive: isCaseInsensitive
-    ) else {
-      signalFailure()
-      return false
+    ) 
+
+    guard let previous else {
+      guard currentPosition == start else {
+        signalFailure()
+        return false
+      }
+
+      return true
     }
+
     currentPosition = previous
     return true
   }
