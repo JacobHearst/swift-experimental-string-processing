@@ -1629,33 +1629,36 @@ extension RegexTests {
       #"\d{3}(?<!USD\d{3})"#, input: "Price: JYP100", match: "100")
 
     firstMatchTest(#"(?<=abc)def"#, input: "abcdefg", match: "def")
-   firstMatchTests(
-     #"(?<=az|b|c)def"#,
-     ("azdefg", "def"),
-     ("bdefg", "def"),
-     ("cdefg", "def"),
-     ("123defg", nil),
-     validateOptimizations: false
-   )
-
-   firstMatchTest(#"abcd(?<=bc(?=d).)"#, input: "abcdefg", match: "abcd")
+    firstMatchTests(
+      #"(?<=az|b|c)def"#,
+      ("azdefg", "def"),
+      ("bdefg", "def"),
+      ("cdefg", "def"),
+      ("123defg", nil)
+    )
 
 // FIXME: quickMatch and thoroughMatch have different results
 //    firstMatchTest(
 //      #"(?<=\d{1,3}-.{1,3}-\d{1,3})suffix"#,
 //      input: "123-_+/-789suffix",
-//      match: "suffix",
-//      validateOptimizations: false
+//      match: "suffix"
 //    )
 
-   firstMatchTests(
-     #"(?<=^\d{1,3})abc"#,
-     ("123abc", "abc"),
-     ("12abc", "abc"),
-     ("1abc", "abc"),
-     ("1234abc", nil), // FIXME: Shouldn't match but does because `^` assertions are broken
-     ("z123abc", nil) // FIXME: Same as above
-   )
+    firstMatchTests(
+      #"(?<=^\d{1,3})abc"#,
+      ("123abc", "abc"),
+      ("12abc", "abc"),
+      ("1abc", "abc"),
+      ("1234abc", nil), // FIXME: Shouldn't match but does because `^` assertions are broken
+      ("z123abc", nil) // FIXME: Same as above
+    )
+
+    firstMatchTest(#"abcd(?<=c(?=d)d)"#, input: "abcdefg", match: "abcd")
+    firstMatchTest(#"abcd(?<=cd(?=d).)"#, input: "abcdefg", match: nil)
+    firstMatchTest(#"abcd(?<=c(?=e)d)"#, input: "abcdefg", match: nil)
+    firstMatchTest(#"abcd(?<=bc(?=d).)"#, input: "abcdefg", match: "abcd")
+    firstMatchTest(#"abcd(?<=bc(?=de)d)"#, input: "abcdefg", match: "abcd")
+    firstMatchTest(#"abcd(?<=bc(?=de).)"#, input: "abcdefg", match: "abcd")
   }
 
   func testMatchAnchors() throws {
