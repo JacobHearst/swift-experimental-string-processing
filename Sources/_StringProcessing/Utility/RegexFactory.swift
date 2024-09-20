@@ -173,6 +173,7 @@ public struct _RegexFactory {
   public func lookbehindNonCapturing<Output>(
     _ component: some RegexComponent
   ) -> Regex<Output> {
+    // TODO: Compiler error if component contains a custom consumer?
     .init(node: .nonCapturingGroup(.lookbehind, component.regex.root))
   }
 
@@ -181,6 +182,7 @@ public struct _RegexFactory {
   public func negativeLookbehindNonCapturing<Output>(
     _ component: some RegexComponent
   ) -> Regex<Output> {
+    // TODO: Compiler error if component contains a custom consumer?
     .init(node: .nonCapturingGroup(.negativeLookbehind, component.regex.root))
   }
 

@@ -388,6 +388,10 @@ fileprivate extension Compiler.ByteCodeGen {
     _ kind: (forwards: Bool, positive: Bool),
     _ child: DSLTree.Node
   ) throws {
+    guard !child.containsCustomConsumer else {
+      throw Unsupported("Lookarounds with custom consumers")
+    }
+
     let previousReverse = reverse
     reverse = !kind.forwards
     if kind.positive {
@@ -1367,5 +1371,30 @@ extension DSLTree.CustomCharacterClass {
       }
     }
     return false
+  }
+}
+
+extension DSLTree.Node {
+  var containsCustomConsumer: Bool {
+    switch self {
+    case .orderedChoice(let array), .concatenation(let array):
+      array.contains { $0.containsCustomConsumer }
+    case .capture(_, _, let node, _):
+      node.containsCustomConsumer
+    case .nonCapturingGroup(_, let node):
+      node.containsCustomConsumer
+    case .ignoreCapturesInTypedOutput(let node):
+      node.containsCustomConsumer
+    case .conditional(_, let node, let node2):
+      node.containsCustomConsumer || node2.containsCustomConsumer
+    case .quantification(_, _, let node):
+      node.containsCustomConsumer
+    case .convertedRegexLiteral(let node, _):
+      node.containsCustomConsumer
+    case .customCharacterClass, .atom, .trivia, .empty, .quotedLiteral, .absentFunction, .characterPredicate:
+      false
+    case .consumer, .matcher:
+      true
+    }
   }
 }
