@@ -94,6 +94,35 @@ extension Instruction: CustomStringConvertible {
     case .quantify:
       let payload = payload.quantify
       return "\(opcode) \(payload.type) \(payload.minTrips) \(payload.maxExtraTrips?.description ?? "unbounded" )"
+    case .reverse:
+      return "\(opcode) \(payload.distance)"
+    case .reverseMatch:
+      let (isCaseInsensitive, reg) = payload.elementPayload
+      if isCaseInsensitive {
+        return "reverseMatchCaseInsensitive char[\(reg)]"
+      } else {
+        return "reverseMatch char[\(reg)]"
+      }
+    case .reverseMatchBitset:
+      let (isScalar, reg) = payload.bitsetPayload
+      if isScalar {
+        return "reverseMatchBitsetScalar bitset[\(reg)]"
+      } else {
+        return "reverseMatchBitset bitset[\(reg)]"
+      }
+    case .reverseMatchBuiltin:
+      let payload = payload.characterClassPayload
+      return "\(opcode) \(payload.cc) (\(payload.isInverted))"
+    case .reverseMatchScalar:
+      let (scalar, caseInsensitive, boundaryCheck) = payload.scalarPayload
+      if caseInsensitive {
+        return "reverseMatchScalarCaseInsensitive '\(scalar)' boundaryCheck: \(boundaryCheck)"
+      } else {
+        return "reverseMatchScalar '\(scalar)' boundaryCheck: \(boundaryCheck)"
+      }
+    case .reverseQuantify:
+      let payload = payload.quantify
+      return "\(opcode) \(payload.type) \(payload.minTrips) \(payload.maxExtraTrips?.description ?? "unbounded" )"
     case .save:
       let resumeAddr = payload.addr
       return "\(opcode) \(resumeAddr)"

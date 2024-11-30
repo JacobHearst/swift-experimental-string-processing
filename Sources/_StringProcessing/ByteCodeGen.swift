@@ -16,9 +16,7 @@ internal import _RegexParser
 
 extension Compiler {
   struct ByteCodeGen {
-    var reverse: Bool {
-      options.reversed
-    }
+    var reverse: Bool { options.reversed }
     var options: MatchingOptions
     var builder = MEProgram.Builder()
     /// A Boolean indicating whether the first matchable atom has been emitted.
