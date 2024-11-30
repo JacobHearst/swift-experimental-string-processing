@@ -126,6 +126,10 @@ extension MatchingOptions {
       : .unicodeScalar
   }
 
+  var reversed: Bool {
+    stack.last!.contains(.reverse)
+  }
+
   /// Whether matching needs to honor canonical equivalence.
   ///
   /// Currently, this is synonymous with grapheme-cluster semantics, but could
@@ -183,6 +187,9 @@ extension MatchingOptions {
     case extended
     case extraExtended
 
+    // Reverse matching options
+    case reverse
+
     init?(_ astKind: AST.MatchingOption.Kind) {
       switch astKind {
       case .caseInsensitive:
@@ -225,6 +232,8 @@ extension MatchingOptions {
         self = .extended
       case .extraExtended:
         self = .extraExtended
+      case .reverse:
+        self = .reverse
       #if RESILIENT_LIBRARIES
       @unknown default:
         fatalError()

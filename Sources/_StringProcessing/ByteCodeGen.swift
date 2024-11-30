@@ -16,6 +16,9 @@ internal import _RegexParser
 
 extension Compiler {
   struct ByteCodeGen {
+    var reverse: Bool {
+      options.reversed
+    }
     var options: MatchingOptions
     var builder = MEProgram.Builder()
     /// A Boolean indicating whether the first matchable atom has been emitted.
@@ -136,14 +139,16 @@ fileprivate extension Compiler.ByteCodeGen {
       // ASCII value)
       if s.utf8.count >= longThreshold, !options.isCaseInsensitive {
         let boundaryCheck = options.semanticLevel == .graphemeCluster
-        builder.buildMatchUTF8(Array(s.utf8), boundaryCheck: boundaryCheck)
+        let utf8 = reverse ? Array(s.utf8).reversed() : Array(s.utf8)
+        builder.buildMatchUTF8(utf8, boundaryCheck: boundaryCheck, reverse: reverse)
         return
       }
     }
 
     guard options.semanticLevel == .graphemeCluster else {
       for char in s {
-        for scalar in char.unicodeScalars {
+        let scalars: any Collection<UnicodeScalar> = reverse ? char.unicodeScalars.reversed() : char.unicodeScalars
+        for scalar in scalars {
           emitMatchScalar(scalar)
         }
       }
@@ -152,20 +157,24 @@ fileprivate extension Compiler.ByteCodeGen {
 
     // Fast path for eliding boundary checks for an all ascii quoted literal
     if optimizationsEnabled && s.allSatisfy(\.isASCII) && !s.isEmpty {
-      let lastIdx = s.unicodeScalars.indices.last!
-      for idx in s.unicodeScalars.indices {
-        let boundaryCheck = idx == lastIdx
+      let boundaryIdx = reverse ? s.unicodeScalars.indices.first! : s.unicodeScalars.indices.last!
+      let indices: any Collection<String.UnicodeScalarIndex> = reverse
+        ? s.unicodeScalars.indices.reversed()
+        : s.unicodeScalars.indices
+      for idx in indices {
+        let boundaryCheck = idx == boundaryIdx
         let scalar = s.unicodeScalars[idx]
         if options.isCaseInsensitive && scalar.properties.isCased {
-          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck)
+          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck, reverse: reverse)
         } else {
-          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck)
+          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck, reverse: reverse)
         }
       }
       return
     }
 
-    for c in s { emitCharacter(c) }
+    let chars: any Collection<Character> = reverse ? s.reversed() : s
+    for char in chars { emitCharacter(char) }
   }
 
   mutating func emitBackreference(
@@ -212,21 +221,22 @@ fileprivate extension Compiler.ByteCodeGen {
   }
 
   mutating func emitCharacterClass(_ cc: DSLTree.Atom.CharacterClass) {
-    builder.buildMatchBuiltin(model: cc.asRuntimeModel(options))
+    builder.buildMatchBuiltin(model: cc.asRuntimeModel(options), reverse: reverse)
   }
 
   mutating func emitMatchScalar(_ s: UnicodeScalar) {
     assert(options.semanticLevel == .unicodeScalar)
     if options.isCaseInsensitive && s.properties.isCased {
-      builder.buildMatchScalarCaseInsensitive(s, boundaryCheck: false)
+      builder.buildMatchScalarCaseInsensitive(s, boundaryCheck: false, reverse: reverse)
     } else {
-      builder.buildMatchScalar(s, boundaryCheck: false)
+      builder.buildMatchScalar(s, boundaryCheck: false, reverse: reverse)
     }
   }
   
   mutating func emitCharacter(_ c: Character) {
     // Unicode scalar mode matches the specific scalars that comprise a character
     if options.semanticLevel == .unicodeScalar {
+      // TODO: JH Does this need to be reversed?
       for scalar in c.unicodeScalars {
         emitMatchScalar(scalar)
       }
@@ -240,39 +250,43 @@ fileprivate extension Compiler.ByteCodeGen {
         assert(c.unicodeScalars.count == 1)
         builder.buildMatchScalarCaseInsensitive(
           c.unicodeScalars.last!,
-          boundaryCheck: true)
+          boundaryCheck: true,
+          reverse: reverse
+        )
       } else {
-        builder.buildMatch(c, isCaseInsensitive: true)
+        builder.buildMatch(c, isCaseInsensitive: true, reverse: reverse)
       }
       return
     }
     
     if optimizationsEnabled && c.isASCII {
-      let lastIdx = c.unicodeScalars.indices.last!
+      // TODO: JH - is this correct to do?
+      let boundaryIdx = reverse ? c.unicodeScalars.indices.first! : c.unicodeScalars.indices.last!
+      // TODO: JH - Do I need to reverse this?
       for idx in c.unicodeScalars.indices {
-        builder.buildMatchScalar(c.unicodeScalars[idx], boundaryCheck: idx == lastIdx)
+        builder.buildMatchScalar(c.unicodeScalars[idx], boundaryCheck: idx == boundaryIdx, reverse: reverse)
       }
       return
     }
       
-    builder.buildMatch(c, isCaseInsensitive: false)
+    builder.buildMatch(c, isCaseInsensitive: false, reverse: reverse)
   }
 
   mutating func emitAny() {
     switch options.semanticLevel {
     case .graphemeCluster:
-      builder.buildAdvance(1)
+      builder.buildAdvance(1, reverse: reverse)
     case .unicodeScalar:
-      builder.buildAdvanceUnicodeScalar(1)
+      builder.buildAdvanceUnicodeScalar(1, reverse: reverse)
     }
   }
 
   mutating func emitAnyNonNewline() {
     switch options.semanticLevel {
     case .graphemeCluster:
-      builder.buildConsumeNonNewline()
+      builder.buildConsumeNonNewline(reverse: reverse)
     case .unicodeScalar:
-      builder.buildConsumeScalarNonNewline()
+      builder.buildConsumeScalarNonNewline(reverse: reverse)
     }
   }
 
@@ -342,7 +356,7 @@ fileprivate extension Compiler.ByteCodeGen {
     try emitNode(node)
   }
 
-  mutating func emitPositiveLookahead(_ child: DSLTree.Node) throws {
+  mutating func emitPositiveLookaround(_ child: DSLTree.Node) throws {
     /*
       save(restoringAt: success)
       save(restoringAt: intercept)
@@ -371,7 +385,7 @@ fileprivate extension Compiler.ByteCodeGen {
     builder.label(success)
   }
   
-  mutating func emitNegativeLookahead(_ child: DSLTree.Node) throws {
+  mutating func emitNegativeLookaround(_ child: DSLTree.Node) throws {
     /*
       save(restoringAt: success)
       save(restoringAt: intercept)
@@ -404,13 +418,14 @@ fileprivate extension Compiler.ByteCodeGen {
     _ kind: (forwards: Bool, positive: Bool),
     _ child: DSLTree.Node
   ) throws {
-    guard kind.forwards else {
-      throw Unsupported("backwards assertions")
-    }
+    defer { options.endScope() }
+    options.beginScope()
+    // TODO: JH - Is it okay to use .fake here?
+    options.apply(.init(adding: [.init(.reverse, location: .fake)]))
     if kind.positive {
-      try emitPositiveLookahead(child)
+      try emitPositiveLookaround(child)
     } else {
-      try emitNegativeLookahead(child)
+      try emitNegativeLookaround(child)
     }
   }
 
@@ -472,15 +487,14 @@ fileprivate extension Compiler.ByteCodeGen {
     options.beginScope()
     defer { options.endScope() }
 
-    if let lookaround = kind.lookaroundKind {
-      try emitLookaround(lookaround, child)
-      return
-    }
-
     switch kind {
     case .lookahead, .negativeLookahead,
         .lookbehind, .negativeLookbehind:
-      throw Unreachable("TODO: reason")
+      guard let lookaround = kind.lookaroundKind else {
+        throw Unreachable("TODO: reason")
+      }
+
+      try emitLookaround(lookaround, child)
 
     case .capture, .namedCapture, .balancedCapture:
       throw Unreachable("These should produce a capture node")
@@ -768,7 +782,7 @@ fileprivate extension Compiler.ByteCodeGen {
       guard let bitset = ccc.asAsciiBitset(options) else {
         return false
       }
-      builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+      builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: reverse)
 
     case .atom(let atom):
       switch atom {
@@ -777,17 +791,17 @@ fileprivate extension Compiler.ByteCodeGen {
         guard let val = c._singleScalarAsciiValue else {
           return false
         }
-        builder.buildQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+        builder.buildQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: reverse)
 
       case .any:
         builder.buildQuantifyAny(
-          matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: reverse)
       case .anyNonNewline:
         builder.buildQuantifyAny(
-          matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: reverse)
       case .dot:
         builder.buildQuantifyAny(
-          matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: reverse)
 
       case .characterClass(let cc):
         // Custom character class that consumes a single grapheme
@@ -797,7 +811,9 @@ fileprivate extension Compiler.ByteCodeGen {
           kind,
           minTrips,
           maxExtraTrips,
-          isScalarSemantics: isScalarSemantics)
+          isScalarSemantics: isScalarSemantics,
+          reverse: reverse
+        )
       default:
         return false
       }
@@ -1111,9 +1127,9 @@ fileprivate extension Compiler.ByteCodeGen {
     if let asciiBitset = ccc.asAsciiBitset(options),
         optimizationsEnabled {
       if options.semanticLevel == .unicodeScalar {
-        builder.buildScalarMatchAsciiBitset(asciiBitset)
+        builder.buildScalarMatchAsciiBitset(asciiBitset, reverse: reverse)
       } else {
-        builder.buildMatchAsciiBitset(asciiBitset)
+        builder.buildMatchAsciiBitset(asciiBitset, reverse: reverse)
       }
       return
     }
@@ -1166,9 +1182,9 @@ fileprivate extension Compiler.ByteCodeGen {
       // Consume a single unit for the inverted ccc
       switch options.semanticLevel {
       case .graphemeCluster:
-        builder.buildAdvance(1)
+        builder.buildAdvance(1, reverse: reverse)
       case .unicodeScalar:
-        builder.buildAdvanceUnicodeScalar(1)
+        builder.buildAdvanceUnicodeScalar(1, reverse: reverse)
       }
       return
     }
@@ -1195,7 +1211,7 @@ fileprivate extension Compiler.ByteCodeGen {
         return [node]
       }
     }
-    let children = children
+    var children = children
       .flatMap(flatten)
       .coalescing(with: "", into: DSLTree.Node.quotedLiteral) { str, node in
         switch node {
@@ -1214,6 +1230,10 @@ fileprivate extension Compiler.ByteCodeGen {
           return false
         }
       }
+
+    if reverse {
+      children.reverse()
+    }
     for child in children {
       try emitConcatenationComponent(child)
     }

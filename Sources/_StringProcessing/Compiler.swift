@@ -117,5 +117,6 @@ public struct _CompileOptions: OptionSet {
   public static let disableOptimizations = _CompileOptions(rawValue: 1 << 0)
   public static let enableTracing = _CompileOptions(rawValue: 1 << 1)
   public static let enableMetrics = _CompileOptions(rawValue: 1 << 2)
+  public static let reverse = _CompileOptions(rawValue: 1 << 3)
   public static let `default`: _CompileOptions = []
 }

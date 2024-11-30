@@ -47,6 +47,10 @@ extension AST {
       
       // NSRegularExpression compatibility special-case
       case nsreCompatibleDot        // no AST representation
+
+      // TODO: JH - Is this what was meant by modeling reverse as an option?
+      // Internal reverse matching option
+      case reverse
     }
     
     public var kind: Kind

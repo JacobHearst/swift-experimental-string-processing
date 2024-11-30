@@ -540,15 +540,25 @@ extension Processor {
           controller.step()
         }
       }
+    case .reverse:
+      // TODO: JH
+      print("Stub")
     case .matchAnyNonNewline:
       if matchAnyNonNewline(isScalarSemantics: payload.isScalar) {
         controller.step()
       }
+    case .reverseMatchAnyNonNewline:
+      // TODO: JH
+      print("Stub")
     case .match:
       let (isCaseInsensitive, reg) = payload.elementPayload
       if match(registers[reg], isCaseInsensitive: isCaseInsensitive) {
         controller.step()
       }
+
+    case .reverseMatch:
+      // TODO: JH
+      print("Stub")
 
     case .matchScalar:
       let (scalar, caseInsensitive, boundaryCheck) = payload.scalarPayload
@@ -560,6 +570,10 @@ extension Processor {
         controller.step()
       }
 
+    case .reverseMatchScalar:
+      // TODO: JH
+      print("Stub")
+
     case .matchUTF8:
       let (utf8Reg, boundaryCheck) = payload.matchUTF8Payload
       let utf8Content = registers[utf8Reg]
@@ -569,12 +583,20 @@ extension Processor {
         controller.step()
       }
 
+    case .reverseMatchUTF8:
+      // TODO: JH
+      print("Stub")
+
     case .matchBitset:
       let (isScalar, reg) = payload.bitsetPayload
       let bitset = registers[reg]
       if matchBitset(bitset, isScalarSemantics: isScalar) {
         controller.step()
       }
+
+    case .reverseMatchBitset:
+      // TODO: JH
+      print("Stub")
 
     case .matchBuiltin:
       let payload = payload.characterClassPayload
@@ -586,10 +608,19 @@ extension Processor {
       ) {
         controller.step()
       }
+
+    case .reverseMatchBuiltin:
+      // TODO: JH
+      print("Stub")
+
     case .quantify:
       if runQuantify(payload.quantify) {
         controller.step()
       }
+
+    case .reverseQuantify:
+      // TODO: JH
+      print("Stub")
 
     case .consumeBy:
       let reg = payload.consumer

@@ -902,6 +902,12 @@ extension DSLTree {
       public static var negativeLookahead: Self {
         .init(ast: .negativeLookahead)
       }
+      public static var lookbehind: Self {
+        .init(ast: .lookbehind)
+      }
+      public static var negativeLookbehind: Self {
+        .init(ast: .negativeLookbehind)
+      }
     }
 
     @_spi(RegexBuilder)
