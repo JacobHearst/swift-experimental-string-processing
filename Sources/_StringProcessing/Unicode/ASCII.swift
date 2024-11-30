@@ -109,7 +109,7 @@ extension String {
     let tail = utf8[next]
     guard tail._isSub300StartingByte else { return nil }
 
-    // Handle CR-LF:
+    // Handle CR-LF by advancing past the sequence if both characters are present
     if base == ._carriageReturn && tail == ._lineFeed {
       utf8.formIndex(after: &next)
       guard next == end || utf8[next]._isSub300StartingByte else {
@@ -120,6 +120,49 @@ extension String {
 
     assert(self[idx].isASCII && self[idx] != "\r\n")
     return (first: base, next: next, crLF: false)
+  }
+
+  /// TODO: better to take isScalarSemantics parameter, we can return more results
+  /// and we can give the right `next` index, not requiring the caller to re-adjust it
+  /// TODO: detailed description of nuanced semantics
+  func _quickReverseASCIICharacter(
+    at idx: Index,
+    limitedBy start: Index
+  ) -> (first: UInt8, previous: Index, crLF: Bool)? {
+    // TODO: fastUTF8 version
+    assert(String.Index(idx, within: unicodeScalars) != nil)
+    assert(idx >= start)
+
+    // If we're already at the start, there is no previous character
+    if idx == start {
+      return nil
+    }
+    let base = utf8[idx]
+    guard base._isASCII else {
+      assert(!self[idx].isASCII)
+      return nil
+    }
+
+    var previous = utf8.index(before: idx)
+    if previous == start {
+      return (first: base, previous: previous, crLF: false)
+    }
+
+    let head = utf8[previous]
+    guard head._isSub300StartingByte else { return nil }
+
+    // Handle CR-LF:
+    if base == ._lineFeed && head == ._carriageReturn {
+      utf8.formIndex(before: &previous)
+      // TODO: JH - Is the `previous == start` translation of the forwards variant correct?
+      guard previous == start || utf8[previous]._isSub300StartingByte else {
+        return nil
+      }
+      return (first: base, previous: previous, crLF: true)
+    }
+
+    assert(self[idx].isASCII && self[idx] != "\r\n")
+    return (first: base, previous: previous, crLF: false)
   }
 
   func _quickMatch(

@@ -221,11 +221,51 @@ extension Processor {
     return false
   }
 
+  // Reverse in our input
+  //
+  // Returns whether the reverse succeeded. On failure, our
+  // save point was restored
+  mutating func reverseConsume(_ n: Distance) -> Bool {
+    // TODO: needs benchmark coverage
+    if let idx = input.index(
+      currentPosition, offsetBy: -n.rawValue, limitedBy: start
+    ) {
+      currentPosition = idx
+      return true
+    }
+
+    // If `start` falls in the middle of a character, and we are trying to advance
+    // by one "character", then we should max out at `start` even though the above
+    // reversal will result in `nil`.
+    if n == 1, let idx = input.unicodeScalars.index(
+      currentPosition, offsetBy: -n.rawValue, limitedBy: start
+    ) {
+      currentPosition = idx
+      return true
+    }
+
+    signalFailure()
+    return false
+  }
+
   // Advances in unicode scalar view
   mutating func consumeScalar(_ n: Distance) -> Bool {
     // TODO: needs benchmark coverage
     guard let idx = input.unicodeScalars.index(
       currentPosition, offsetBy: n.rawValue, limitedBy: end
+    ) else {
+      signalFailure()
+      return false
+    }
+    currentPosition = idx
+    return true
+  }
+
+  // Reverses in unicode scalar view
+  mutating func reverseConsumeScalar(_ n: Distance) -> Bool {
+    // TODO: needs benchmark coverage
+    guard let idx = input.unicodeScalars.index(
+      currentPosition, offsetBy: -n.rawValue, limitedBy: start
     ) else {
       signalFailure()
       return false
@@ -358,6 +398,7 @@ extension Processor {
     return true
   }
 
+  // TODO: JH - Reverse
   // Matches the next character/scalar if it is not a newline
   mutating func matchAnyNonNewline(
     isScalarSemantics: Bool
@@ -541,8 +582,16 @@ extension Processor {
         }
       }
     case .reverse:
-      // TODO: JH
-      print("Stub")
+      let (isScalar, distance) = payload.distance
+      if isScalar {
+        if reverseConsumeScalar(distance) {
+          controller.step()
+        }
+      } else {
+        if reverseConsume(distance) {
+          controller.step()
+        }
+      }
     case .matchAnyNonNewline:
       if matchAnyNonNewline(isScalarSemantics: payload.isScalar) {
         controller.step()

@@ -160,7 +160,8 @@ extension String {
       ? nil
       : (substr.first!, substr.endIndex)
   }
-  
+
+  // TODO: JH - Reverse
   func matchAnyNonNewline(
     at currentPosition: String.Index,
     limitedBy end: String.Index,
@@ -181,6 +182,31 @@ extension String {
     return _thoroughMatchAnyNonNewline(
       at: currentPosition,
       limitedBy: end,
+      isScalarSemantics: isScalarSemantics)
+  }
+
+  // TODO: JH - Reverse
+  func reverseMatchAnyNonNewline(
+    at currentPosition: String.Index,
+    limitedBy start: String.Index,
+    isScalarSemantics: Bool
+  ) -> String.Index? {
+    // If there is no previous character, there's no match
+    guard currentPosition > start else { return nil }
+    if case .definite(let result) = _quickMatchAnyNonNewline(
+      at: currentPosition,
+      limitedBy: start,
+      isScalarSemantics: isScalarSemantics
+    ) {
+      assert(result == _thoroughMatchAnyNonNewline(
+        at: currentPosition,
+        limitedBy: start,
+        isScalarSemantics: isScalarSemantics))
+      return result
+    }
+    return _thoroughMatchAnyNonNewline(
+      at: currentPosition,
+      limitedBy: start,
       isScalarSemantics: isScalarSemantics)
   }
 
@@ -205,6 +231,28 @@ extension String {
     }
   }
 
+  @inline(__always)
+  private func _quickReverseMatchAnyNonNewline(
+    at currentPosition: String.Index,
+    limitedBy start: String.Index,
+    isScalarSemantics: Bool
+  ) -> QuickResult<String.Index?> {
+    assert(currentPosition > start)
+    guard let (asciiValue, next, isCRLF) = _quickReverseASCIICharacter(
+      at: currentPosition, limitedBy: start
+    ) else {
+      return .unknown
+    }
+    switch asciiValue {
+    case (._lineFeed)...(._carriageReturn):
+      return .definite(nil)
+    default:
+      assert(!isCRLF)
+      return .definite(next)
+    }
+  }
+
+  // TODO: JH - Reverse
   @inline(never)
   private func _thoroughMatchAnyNonNewline(
     at currentPosition: String.Index,

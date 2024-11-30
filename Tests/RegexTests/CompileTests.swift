@@ -58,6 +58,7 @@ enum DecodedInstr {
   case reverseMatchBuiltin
   case reverseMatchAnyNonNewline
   case reverseQuantify
+  case reverseMatchUTF8
 }
 
 extension DecodedInstr {
@@ -165,6 +166,8 @@ extension DecodedInstr {
       return .reverseMatchAnyNonNewline
     case .reverseQuantify:
       return .reverseQuantify
+    case .reverseMatchUTF8:
+      return .reverseMatchUTF8
     }
   }
 }
