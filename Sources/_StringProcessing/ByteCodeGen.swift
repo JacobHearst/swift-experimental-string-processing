@@ -16,7 +16,9 @@ internal import _RegexParser
 
 extension Compiler {
   struct ByteCodeGen {
-    var reverse = false
+    var reverse: Bool {
+      options.reversed
+    }
     var options: MatchingOptions
     var builder = MEProgram.Builder()
     /// A Boolean indicating whether the first matchable atom has been emitted.
@@ -392,14 +394,16 @@ fileprivate extension Compiler.ByteCodeGen {
       throw Unsupported("Lookarounds with custom consumers")
     }
 
-    let previousReverse = reverse
-    reverse = !kind.forwards
+    defer { options.endScope() }
+    options.beginScope()
+    // TODO: JH - Is it okay to use .fake here?
+    options.apply(.init(adding: [.init(.reverse, location: .fake)]))
+
     if kind.positive {
       try emitPositiveLookaround(child)
     } else {
       try emitNegativeLookaround(child)
     }
-    reverse = previousReverse
   }
 
   mutating func emitAtomicNoncapturingGroup(
