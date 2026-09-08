@@ -230,7 +230,8 @@ extension Processor {
           throw e
         }
         return nil
-      case .inProgress: self.cycle()
+      case .inProgress:
+        self.cycle()
       }
     }
   }

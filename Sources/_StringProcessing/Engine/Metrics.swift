@@ -17,7 +17,7 @@ extension Processor {
     var resets: Int = 0
     var cycleCount: Int = 0
 
-    var isTracingEnabled: Bool = false
+    var isTracingEnabled: Bool = true
     var shouldMeasureMetrics: Bool = false
 
     init(isTracingEnabled: Bool, shouldMeasureMetrics: Bool) {

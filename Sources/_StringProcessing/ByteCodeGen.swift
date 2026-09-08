@@ -116,13 +116,14 @@ extension Compiler.ByteCodeGen {
       // ASCII value)
       if s.utf8.count >= longThreshold, !options.isCaseInsensitive {
         let boundaryCheck = options.semanticLevel == .graphemeCluster
-        builder.buildMatchUTF8(Array(s.utf8), boundaryCheck: boundaryCheck)
+        builder.buildMatchUTF8(Array(s.utf8), boundaryCheck: boundaryCheck, reverse: options.reversed)
         return
       }
     }
 
     guard options.semanticLevel == .graphemeCluster else {
       for char in s {
+        let scalars: any Collection<UnicodeScalar> = options.reversed ? char.unicodeScalars.reversed() : char.unicodeScalars
         for scalar in char.unicodeScalars {
           emitMatchScalar(scalar)
         }
@@ -132,20 +133,27 @@ extension Compiler.ByteCodeGen {
 
     // Fast path for eliding boundary checks for an all ascii quoted literal
     if optimizationsEnabled && s.allSatisfy(\.isASCII) && !s.isEmpty {
-      let lastIdx = s.unicodeScalars.indices.last!
-      for idx in s.unicodeScalars.indices {
-        let boundaryCheck = idx == lastIdx
+      let boundaryIdx = options.reversed ? s.unicodeScalars.indices.first! : s.unicodeScalars.indices.last!
+      let reversed = options.reversed
+      let indices: any Collection<String.UnicodeScalarIndex> = options.reversed
+        ? s.unicodeScalars.indices.reversed()
+        : s.unicodeScalars.indices
+      for idx in indices {
+        let boundaryCheck = idx == boundaryIdx
         let scalar = s.unicodeScalars[idx]
         if options.isCaseInsensitive && scalar.properties.isCased {
-          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck)
+          builder.buildMatchScalarCaseInsensitive(scalar, boundaryCheck: boundaryCheck, reverse: options.reversed)
         } else {
-          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck)
+          builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck, reverse: options.reversed)
         }
       }
       return
     }
 
-    for c in s { emitCharacter(c) }
+    let chars: any Collection<Character> = options.reversed ? s.reversed() : s
+    for char in chars {
+      emitCharacter(char)
+    }
   }
 
   mutating func emitBackreference(
@@ -192,15 +200,15 @@ extension Compiler.ByteCodeGen {
   }
 
   mutating func emitCharacterClass(_ cc: DSLTree.Atom.CharacterClass) {
-    builder.buildMatchBuiltin(model: cc.asRuntimeModel(options))
+    builder.buildMatchBuiltin(model: cc.asRuntimeModel(options), reverse: options.reversed)
   }
 
   mutating func emitMatchScalar(_ s: UnicodeScalar) {
     assert(options.semanticLevel == .unicodeScalar)
     if options.isCaseInsensitive && s.properties.isCased {
-      builder.buildMatchScalarCaseInsensitive(s, boundaryCheck: false)
+      builder.buildMatchScalarCaseInsensitive(s, boundaryCheck: false, reverse: options.reversed)
     } else {
-      builder.buildMatchScalar(s, boundaryCheck: false)
+      builder.buildMatchScalar(s, boundaryCheck: false, reverse: options.reversed)
     }
   }
   
@@ -220,9 +228,10 @@ extension Compiler.ByteCodeGen {
         assert(c.unicodeScalars.count == 1)
         builder.buildMatchScalarCaseInsensitive(
           c.unicodeScalars.last!,
-          boundaryCheck: true)
+          boundaryCheck: true,
+          reverse: options.reversed)
       } else {
-        builder.buildMatch(c, isCaseInsensitive: true)
+        builder.buildMatch(c, isCaseInsensitive: true, reverse: options.reversed)
       }
       return
     }
@@ -230,29 +239,31 @@ extension Compiler.ByteCodeGen {
     if optimizationsEnabled && c.isASCII {
       let lastIdx = c.unicodeScalars.indices.last!
       for idx in c.unicodeScalars.indices {
-        builder.buildMatchScalar(c.unicodeScalars[idx], boundaryCheck: idx == lastIdx)
+        let scalar = c.unicodeScalars[idx]
+        let boundaryCheck = idx == lastIdx
+        builder.buildMatchScalar(scalar, boundaryCheck: boundaryCheck, reverse: options.reversed)
       }
       return
     }
       
-    builder.buildMatch(c, isCaseInsensitive: false)
+    builder.buildMatch(c, isCaseInsensitive: false, reverse: options.reversed)
   }
 
   mutating func emitAny() {
     switch options.semanticLevel {
     case .graphemeCluster:
-      builder.buildAdvance(1)
+      builder.buildAdvance(1, reverse: options.reversed)
     case .unicodeScalar:
-      builder.buildAdvanceUnicodeScalar(1)
+      builder.buildAdvanceUnicodeScalar(1, reverse: options.reversed)
     }
   }
 
   mutating func emitAnyNonNewline() {
     switch options.semanticLevel {
     case .graphemeCluster:
-      builder.buildConsumeNonNewline()
+      builder.buildConsumeNonNewline(reverse: options.reversed)
     case .unicodeScalar:
-      builder.buildConsumeScalarNonNewline()
+      builder.buildConsumeScalarNonNewline(reverse: options.reversed)
     }
   }
 
@@ -631,9 +642,9 @@ extension Compiler.ByteCodeGen {
     if let asciiBitset = ccc.asAsciiBitset(options),
         optimizationsEnabled {
       if options.semanticLevel == .unicodeScalar {
-        builder.buildScalarMatchAsciiBitset(asciiBitset)
+        builder.buildScalarMatchAsciiBitset(asciiBitset, reverse: options.reversed)
       } else {
-        builder.buildMatchAsciiBitset(asciiBitset)
+        builder.buildMatchAsciiBitset(asciiBitset, reverse: options.reversed)
       }
       return
     }
@@ -686,9 +697,9 @@ extension Compiler.ByteCodeGen {
       // Consume a single unit for the inverted ccc
       switch options.semanticLevel {
       case .graphemeCluster:
-        builder.buildAdvance(1)
+        builder.buildAdvance(1, reverse: options.reversed)
       case .unicodeScalar:
-        builder.buildAdvanceUnicodeScalar(1)
+        builder.buildAdvanceUnicodeScalar(1, reverse: options.reversed)
       }
       return
     }

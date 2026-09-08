@@ -39,8 +39,7 @@ class Compiler {
     // TODO: Handle global options
     var codegen = ByteCodeGen(
       options: options,
-      compileOptions:
-        compileOptions,
+      compileOptions: compileOptions,
       captureList: tree.captureList)
     var tree = tree
     return try codegen.emitRoot(&tree)

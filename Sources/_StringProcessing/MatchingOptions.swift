@@ -137,6 +137,10 @@ extension MatchingOptions {
   var usesNSRECompatibleDot: Bool {
     stack.last!.contains(.nsreCompatibleDot)
   }
+
+  var reversed: Bool {
+    stack.last!.contains(.reverse)
+  }
 }
 
 // MARK: - Implementation
@@ -183,6 +187,9 @@ extension MatchingOptions {
     case extended
     case extraExtended
 
+    // Lookbehind support
+    case reverse
+
     init?(_ astKind: AST.MatchingOption.Kind) {
       switch astKind {
       case .caseInsensitive:
@@ -225,6 +232,8 @@ extension MatchingOptions {
         self = .extended
       case .extraExtended:
         self = .extraExtended
+      case .reverse:
+        self = .reverse
       #if RESILIENT_LIBRARIES
       @unknown default:
         fatalError()

@@ -31,17 +31,29 @@ enum DecodedInstr {
   case accept
   case fail
   case advance
+  case reverse
   case match
+  case reverseMatch
   case matchCaseInsensitive
+  case reverseMatchCaseInsensitive
   case matchScalar
+  case reverseMatchScalar
   case matchScalarCaseInsensitiveUnchecked
+  case reverseMatchScalarCaseInsensitiveUnchecked
   case matchScalarCaseInsensitive
+  case reverseMatchScalarCaseInsensitive
   case matchScalarUnchecked
+  case reverseMatchScalarUnchecked
   case matchBitsetScalar
+  case reverseMatchBitsetScalar
   case matchAnyNonNewline
+  case reverseMatchAnyNonNewline
   case matchBitset
+  case reverseMatchBitset
   case matchBuiltin
+  case reverseMatchBuiltin
   case matchUTF8
+  case reverseMatchUTF8
   case consumeBy
   case assertBy
   case matchBy
@@ -51,6 +63,7 @@ enum DecodedInstr {
   case transformCapture
   case captureValue
   case quantify
+  case reverseQuantify
 }
 
 extension DecodedInstr {
@@ -91,12 +104,21 @@ extension DecodedInstr {
       return .fail
     case .advance:
       return .advance
+    case .reverse:
+      return .reverse
     case .match:
       let (isCaseInsensitive, _) = payload.elementPayload
       if isCaseInsensitive {
         return .matchCaseInsensitive
       } else {
         return .match
+      }
+    case .reverseMatch:
+      let (isCaseInsensitive, _) = payload.elementPayload
+      if isCaseInsensitive {
+        return .reverseMatchCaseInsensitive
+      } else {
+        return .reverseMatch
       }
     case .matchScalar:
       let (_, caseInsensitive, boundaryCheck) = payload.scalarPayload
@@ -113,6 +135,21 @@ extension DecodedInstr {
           return .matchScalarUnchecked
         }
       }
+    case .reverseMatchScalar:
+      let (_, caseInsensitive, boundaryCheck) = payload.scalarPayload
+      if caseInsensitive {
+        if boundaryCheck {
+          return .reverseMatchScalarCaseInsensitive
+        } else {
+          return .reverseMatchScalarCaseInsensitiveUnchecked
+        }
+      } else {
+        if boundaryCheck {
+          return .reverseMatchScalar
+        } else {
+          return .reverseMatchScalarUnchecked
+        }
+      }
     case .matchBitset:
       let (isScalar, _) = payload.bitsetPayload
       if isScalar {
@@ -120,16 +157,27 @@ extension DecodedInstr {
       } else {
         return .matchBitset
       }
+    case .reverseMatchBitset:
+      let (isScalar, _) = payload.bitsetPayload
+      if isScalar {
+        return .reverseMatchBitsetScalar
+      } else {
+        return .reverseMatchBitset
+      }
     case .consumeBy:
       return .consumeBy
     case .matchAnyNonNewline:
       return .matchAnyNonNewline
+    case .reverseMatchAnyNonNewline:
+      return .reverseMatchAnyNonNewline
     case .assertBy:
       return .assertBy
     case .matchBy:
       return .matchBy
     case .quantify:
       return .quantify
+    case .reverseQuantify:
+      return .reverseQuantify
     case .backreference:
       return .backreference
     case .beginCapture:
@@ -142,8 +190,12 @@ extension DecodedInstr {
       return .captureValue
     case .matchBuiltin:
       return .matchBuiltin
+    case .reverseMatchBuiltin:
+      return .reverseMatchBuiltin
     case .matchUTF8:
       return .matchUTF8
+    case .reverseMatchUTF8:
+      return .reverseMatchUTF8
     }
   }
 }

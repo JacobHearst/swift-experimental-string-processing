@@ -96,3 +96,5 @@ iOSInjectionProject/
 
 # DocC build folder
 *.docc-build
+
+.worktrees

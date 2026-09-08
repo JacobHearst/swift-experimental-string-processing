@@ -103,7 +103,7 @@ fileprivate extension Compiler.ByteCodeGen {
     // Groups (and other parent nodes) defer to the child.
     case .nonCapturingGroup(let kind):
       // Don't let a negative lookahead affect this - need to continue to next sibling
-      if kind.isNegativeLookahead {
+      if kind.isNegativeLookahead || kind.isLookbehind {
         try? skipNode(&list, preservingCaptures: false)
         return nil
       }
@@ -209,7 +209,7 @@ fileprivate extension Compiler.ByteCodeGen {
     }
   }
 
-  mutating func emitPositiveLookahead(_ list: inout ArraySlice<DSLTree.Node>) throws {
+  mutating func emitPositiveLookaround(_ list: inout ArraySlice<DSLTree.Node>) throws {
     /*
       save(restoringAt: success)
       save(restoringAt: intercept)
@@ -238,7 +238,7 @@ fileprivate extension Compiler.ByteCodeGen {
     builder.label(success)
   }
   
-  mutating func emitNegativeLookahead(_ list: inout ArraySlice<DSLTree.Node>) throws {
+  mutating func emitNegativeLookaround(_ list: inout ArraySlice<DSLTree.Node>) throws {
     /*
       save(restoringAt: success)
       save(restoringAt: intercept)
@@ -271,14 +271,23 @@ fileprivate extension Compiler.ByteCodeGen {
     _ kind: (forwards: Bool, positive: Bool),
     _ list: inout ArraySlice<DSLTree.Node>
   ) throws {
-    guard kind.forwards else {
-      throw Unsupported("backwards assertions")
-    }
-    if kind.positive {
-      try emitPositiveLookahead(&list)
+    options.beginScope()
+    // TODO: JH - Is it okay to use .fake here?
+    let reverseOption = [AST.MatchingOption(.reverse, location: .fake)]
+
+    if kind.forwards {
+      options.apply(.init(removing: reverseOption))
     } else {
-      try emitNegativeLookahead(&list)
+      options.apply(.init(adding: reverseOption))
     }
+
+    if kind.positive {
+      try emitPositiveLookaround(&list)
+    } else {
+      try emitNegativeLookaround(&list)
+    }
+
+    options.endScope()
   }
 
   mutating func emitAtomicNoncapturingGroup(
@@ -330,8 +339,11 @@ fileprivate extension Compiler.ByteCodeGen {
     switch kind {
     case .lookahead, .negativeLookahead,
         .lookbehind, .negativeLookbehind:
-      throw Unreachable("TODO: reason")
+      guard let kind = kind.lookaroundKind else {
+        throw Unreachable("These should produce a lookaround node")
+      }
 
+      try emitLookaround(kind, &list)
     case .capture, .namedCapture, .balancedCapture:
       throw Unreachable("These should produce a capture node")
 
@@ -674,7 +686,7 @@ fileprivate extension Compiler.ByteCodeGen {
       guard let bitset = ccc.asAsciiBitset(options) else {
         return false
       }
-      builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+      builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: options.reversed)
 
     case .atom(let atom):
       switch atom {
@@ -684,24 +696,24 @@ fileprivate extension Compiler.ByteCodeGen {
           guard let bitset = DSLTree.CustomCharacterClass(members: [.atom(atom)]).asAsciiBitset(options) else {
             return false
           }
-          builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          builder.buildQuantify(bitset: bitset, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: options.reversed)
         } else {
           // Uncased character OR case-sensitive matching; match as a single scalar ascii value character
           guard let val = c._singleScalarAsciiValue else {
             return false
           }
-          builder.buildQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          builder.buildQuantify(asciiChar: val, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: options.reversed)
         }
 
       case .any:
         builder.buildQuantifyAny(
-          matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          matchesNewlines: true, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: options.reversed)
       case .anyNonNewline:
         builder.buildQuantifyAny(
-          matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          matchesNewlines: false, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: options.reversed)
       case .dot:
         builder.buildQuantifyAny(
-          matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics)
+          matchesNewlines: options.dotMatchesNewline, kind, minTrips, maxExtraTrips, isScalarSemantics: isScalarSemantics, reverse: options.reversed)
 
       case .characterClass(let cc):
         // Custom character class that consumes a single grapheme
@@ -711,7 +723,8 @@ fileprivate extension Compiler.ByteCodeGen {
           kind,
           minTrips,
           maxExtraTrips,
-          isScalarSemantics: isScalarSemantics)
+          isScalarSemantics: isScalarSemantics,
+          reverse: options.reversed)
       default:
         return false
       }
@@ -743,9 +756,34 @@ fileprivate extension Compiler.ByteCodeGen {
   ) throws {
     // Unlike the tree-based bytecode generator, in a DSLList concatenations
     // have already been flattened.
-    for _ in 0..<componentCount {
-      try emitNode(&list)
+    guard options.reversed else {
+      for _ in 0..<componentCount {
+        try emitNode(&list)
+      }
+      return
     }
+
+    // The concatenation node itself has already been popped
+    // so we have to get the bounds of each of its children
+    // rather than skipping the whole concat in one `skipNode` call.
+    var boundaries: [ClosedRange<Int>] = []
+    var position = list.startIndex
+    for _ in 0..<componentCount {
+      let start = position
+      list.skipNode(&position)
+      boundaries.append(start...position)
+      // Incrementing here effectively iterates to the concat's next child.
+      // `skipNode` sets `position` to the last index of the child (inclusive)
+      // not one past the child's last index (exclusive)
+      position += 1
+    }
+
+    for range in boundaries.reversed() {
+      var child = list[range]
+      try emitNode(&child)
+    }
+
+    list = list[position...]
   }
 
   @discardableResult

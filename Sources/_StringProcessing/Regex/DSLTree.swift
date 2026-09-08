@@ -740,7 +740,11 @@ extension DSLTree {
       internal var isNegativeLookahead: Bool {
         self.ast == .negativeLookahead
       }
-      
+
+      internal var isLookbehind: Bool {
+        self.ast == .lookbehind || self.ast == .negativeLookbehind
+      }
+
       internal var isChangeMatchingOptions: Bool {
         if case .changeMatchingOptions = ast {
           return true

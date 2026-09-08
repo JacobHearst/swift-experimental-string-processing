@@ -49,6 +49,13 @@ func _firstMatch(
   line: UInt = #line
 ) throws -> (String, [String?])? {
   var regex = try Regex(regexStr, syntax: syntax).matchingSemantics(semanticLevel)
+
+  print("Program")
+  for inst in regex.program.loweredProgram.instructions.rawValue {
+    print(inst)
+  }
+  print()
+
   let result = try regex.firstMatch(in: input)
   
   func validateSubstring(_ substringInput: Substring) throws {
@@ -1643,28 +1650,6 @@ extension RegexTests {
       (input: "hezllo", match: nil),
       (input: "helloz", match: nil))
 
-    firstMatchTest(
-      #"(?<=USD)\d+"#, input: "Price: USD100", match: "100", xfail: true)
-    firstMatchTest(
-      #"(*plb:USD)\d+"#, input: "Price: USD100", match: "100", xfail: true)
-    firstMatchTest(
-      #"(*positive_lookbehind:USD)\d+"#,
-      input: "Price: USD100", match: "100", xfail: true)
-    // engines generally enforce that lookbehinds are fixed width
-    firstMatchTest(
-      #"\d{3}(?<=USD\d{3})"#, input: "Price: USD100", match: "100", xfail: true)
-
-    firstMatchTest(
-      #"(?<!USD)\d+"#, input: "Price: JYP100", match: "100", xfail: true)
-    firstMatchTest(
-      #"(*nlb:USD)\d+"#, input: "Price: JYP100", match: "100", xfail: true)
-    firstMatchTest(
-      #"(*negative_lookbehind:USD)\d+"#,
-      input: "Price: JYP100", match: "100", xfail: true)
-    // engines generally enforce that lookbehinds are fixed width
-    firstMatchTest(
-      #"\d{3}(?<!USD\d{3})"#, input: "Price: JYP100", match: "100", xfail: true)
-    
     // Assertions inside negative lookahead
     firstMatchTest(
       #"(?!\b)(With)"#, input: "dispatchWithName", match: "With")
@@ -1672,6 +1657,63 @@ extension RegexTests {
       #"(?!^)(With)"#, input: "dispatchWithName", match: "With")
     firstMatchTest(
       #"(?!\s)^dispatch"#, input: "dispatchWithName", match: "dispatch")
+  }
+
+  func testLookbehinds() {
+    firstMatchTest(
+      #"(?<=USD)\d+"#, input: "Price: USD100", match: "100")
+    firstMatchTest(
+      #"(*plb:USD)\d+"#, input: "Price: USD100", match: "100")
+    firstMatchTest(
+      #"(*positive_lookbehind:USD)\d+"#,
+      input: "Price: USD100", match: "100")
+
+    firstMatchTest(
+      #"\d{3}(?<=USD\d{3})"#, input: "Price: USD100", match: "100")
+
+    firstMatchTest(
+      #"(?<!USD)\d+"#, input: "Price: JYP100", match: "100")
+    firstMatchTest(
+      #"(*nlb:USD)\d+"#, input: "Price: JYP100", match: "100")
+    firstMatchTest(
+      #"(*negative_lookbehind:USD)\d+"#,
+      input: "Price: JYP100", match: "100")
+
+    firstMatchTest(
+      #"\d{3}(?<!USD\d{3})"#, input: "Price: JYP100", match: "100")
+
+    firstMatchTest(#"(?<=abc)def"#, input: "abcdefg", match: "def")
+    firstMatchTests(
+      #"(?<=az|b|c)def"#,
+      ("azdefg", "def"),
+      ("bdefg", "def"),
+      ("cdefg", "def"),
+      ("123defg", nil)
+    )
+
+    firstMatchTests(
+      #"(?<=^\d{1,3})abc"#,
+      ("123abc", "abc"),
+      ("12abc", "abc"),
+      ("1abc", "abc"),
+      ("1234abc", nil),
+      ("z123abc", nil)
+    )
+
+    firstMatchTest(
+      #"(?<=\d{1,3}-.{1,3}-\d{1,3})suffix"#,
+      input: "123-_+/-789suffix",
+      match: "suffix"
+    )
+
+    firstMatchTest(#"abcd(?<=c(?=d)d)"#, input: "abcdefg", match: "abcd")
+    firstMatchTest(#"abcd(?<=cd(?=d).)"#, input: "abcdefg", match: nil)
+    firstMatchTest(#"abcd(?<=c(?=e)d)"#, input: "abcdefg", match: nil)
+    firstMatchTest(#"abcd(?<=bc(?=d).)"#, input: "abcdefg", match: "abcd")
+    firstMatchTest(#"abcd(?<=bc(?=de)d)"#, input: "abcdefg", match: "abcd")
+    firstMatchTest(#"abcd(?<=bc(?=de).)"#, input: "abcdefg", match: "abcd")
+
+
   }
 
   func testMatchAnchors() throws {
