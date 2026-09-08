@@ -324,22 +324,17 @@ extension Processor {
   mutating func reverseMatch(
     _ e: Element, isCaseInsensitive: Bool
   ) -> Bool {
-    let previous = input.matchPrevious(
+    guard let previous = input.matchPrevious(
       e,
       at: currentPosition,
       limitedBy: start,
       isCaseInsensitive: isCaseInsensitive
-    )
-
-    guard let previous else {
-      guard currentPosition == start else {
-        // If there's no previous character, and we're not
-        // at the start of the string, the match has failed
-        signalFailure()
-        return false
-      }
-
-      return true
+    ) else {
+      // No previous element matched `e` within the search bounds. If the
+      // backward walk has reached `start` with literal characters still
+      // unmatched, the lookbehind ran past the search lower bound
+      signalFailure()
+      return false
     }
 
     currentPosition = previous
@@ -390,21 +385,17 @@ extension Processor {
     boundaryCheck: Bool,
     isCaseInsensitive: Bool
   ) -> Bool {
-    let previous = input.matchPreviousScalar(
+    guard let previous = input.matchPreviousScalar(
       s,
       at: currentPosition,
       limitedBy: start,
       boundaryCheck: boundaryCheck,
       isCaseInsensitive: isCaseInsensitive
-    )
-
-    guard let previous else {
-      guard currentPosition == start else {
-        signalFailure()
-        return false
-      }
-
-      return true
+    ) else {
+      // See `reverseMatch`: reaching `start` with scalars still unmatched is
+      // a failure, not a success.
+      signalFailure()
+      return false
     }
 
     currentPosition = previous
@@ -745,9 +736,7 @@ extension Processor {
     case .reverseMatchUTF8:
       let (utf8Reg, boundaryCheck) = payload.matchUTF8Payload
       let utf8Content = registers[utf8Reg]
-      if reverseMatchUTF8(
-        utf8Content, boundaryCheck: boundaryCheck
-      ) {
+      if reverseMatchUTF8(utf8Content, boundaryCheck: boundaryCheck) {
         controller.step()
       }
 
@@ -934,7 +923,7 @@ extension String {
   ) -> Index? {
     // TODO: This can be greatly sped up with string internals
     // TODO: This is also very much quick-check-able
-    guard let prev = character(before: pos, limitedBy: start) else { return nil }
+    guard let prev = character(before: pos, limitedBy: start, isScalarSemantics: false) else { return nil }
 
     if isCaseInsensitive {
       guard prev.char.lowercased() == char.lowercased() else { return nil }
@@ -1064,11 +1053,10 @@ extension String {
   ) -> Index? {
     var cur = pos
     for b in bytes.reversed() {
-      guard cur > start, self.utf8[cur] == b else { return nil }
+      guard cur > start else { return nil }
       self.utf8.formIndex(before: &cur)
+      guard self.utf8[cur] == b else { return nil }
     }
-
-    assert(cur > start)
 
     if boundaryCheck && !isOnGraphemeClusterBoundary(cur) {
       return nil
@@ -1133,7 +1121,9 @@ extension String {
     limitedBy start: Index,
     isScalarSemantics: Bool
   ) -> Index? {
-
+    guard pos > start else {
+      return nil
+    }
     // FIXME: Inversion should be tracked and handled in only one place.
     // That is, we should probably store it as a bit in the instruction, so that
     // bitset matching and bitset inversion is bit-based rather that semantically
@@ -1153,9 +1143,9 @@ extension String {
         guard bitset.matches(unicodeScalars[matchPos]) else { return nil }
         return matchPos
       } else {
-        guard let prev = character(before: pos, limitedBy: start),
-              bitset.matches(prev.char) else { return nil }
-        return prev.index
+        let previous = character(before: pos, limitedBy: start, isScalarSemantics: isScalarSemantics)
+        guard let previous, bitset.matches(previous.char) else { return nil }
+        return previous.index
       }
     }
 

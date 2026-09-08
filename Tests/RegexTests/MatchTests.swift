@@ -1713,7 +1713,17 @@ extension RegexTests {
     firstMatchTest(#"abcd(?<=bc(?=de)d)"#, input: "abcdefg", match: "abcd")
     firstMatchTest(#"abcd(?<=bc(?=de).)"#, input: "abcdefg", match: "abcd")
 
+    firstMatchTest(#"(?<=abcdef)\d"#, input: "abcdef7", match: "7")
+    firstMatchTest(#"(?<=abc)def"#, input: "bcdef", match: nil)
+    firstMatchTest(#"(?<=abc)def"#, input: "cdef", match: nil)
+    firstMatchTest(#"(?<=abc)def"#, input: "abcdef", match: "def", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[abc])x"#, input: "x", match: nil)
+    firstMatchTest(#"(?<=[a-c]*)5"#, input: "abc5", match: "5")
 
+    let split = "e\u{301}5".dropFirst()   // starts inside "e\u{301}"
+    XCTAssertNil(try Regex(#"(?<=\w)\d"#).firstMatch(in: split))
+
+    firstMatchTest(#"(?<=\w)\d"#, input: "\u{FC}5", match: "5", semanticLevel: .unicodeScalar)
   }
 
   func testMatchAnchors() throws {

@@ -216,11 +216,12 @@ extension String {
   ///   scalar-aligned.
   func character(
     before pos: String.Index,
-    limitedBy start: String.Index
+    limitedBy start: String.Index,
+    isScalarSemantics: Bool
   ) -> (char: Character, index: String.Index)? {
     // FIXME: Sink into the stdlib to avoid multiple boundary calculations
     guard pos > start else { return nil }
-    let previous = index(before: pos)
+    let previous = index(before: pos, isScalarSemantics: isScalarSemantics)
     if previous >= start {
       return (self[previous], previous)
     }
@@ -355,10 +356,17 @@ extension String {
       return unicodeScalars.index(before: currentPosition)
     }
 
-    guard let (previousCharacter, previousPosition) = character(before: currentPosition, limitedBy: start),
-          !previousCharacter.isNewline
-    else { return nil }
-    return previousPosition
+    let previous = character(
+      before: currentPosition,
+      limitedBy: start,
+      isScalarSemantics: isScalarSemantics
+    )
+
+    guard let previous, !previous.char.isNewline else {
+      return nil
+    }
+
+    return previous.index
   }
 
   internal func matchRegexDot(
@@ -611,19 +619,25 @@ extension String {
   ) -> String.Index? {
     // TODO: Branch here on scalar semantics
     // Don't want to pay character cost if unnecessary
-    guard var (previousChar, previousIndex) =
-            character(before: currentPosition, limitedBy: start)
-    else { return nil }
+
+    let previous = character(before: currentPosition, limitedBy: start, isScalarSemantics: isScalarSemantics)
+    guard let previous else {
+      return nil
+    }
+
+    // In scalar semantics `previous.index` is already the scalar-aligned
+    // position immediately before `currentPosition` (see `character(before:)`),
+    // so `scalar` is the scalar under test and `previousIndex` is the position
+    // to back up to. Unlike the forward direction, there is no further step to
+    // take here -- the CR-LF case below is the only exception.
+    var previousIndex = previous.index
     let scalar = unicodeScalars[previousIndex]
 
     let asciiCheck = !isStrictASCII
     || (scalar.isASCII && isScalarSemantics)
-    || previousChar.isASCII
+    || previous.char.isASCII
 
     var matched: Bool
-    if isScalarSemantics && cc != .anyGrapheme {
-      unicodeScalars.formIndex(before: &previousIndex)
-    }
 
     switch cc {
     case .any, .anyGrapheme:
@@ -632,42 +646,42 @@ extension String {
       if isScalarSemantics {
         matched = scalar.properties.numericType != nil && asciiCheck
       } else {
-        matched = previousChar.isNumber && asciiCheck
+        matched = previous.char.isNumber && asciiCheck
       }
     case .horizontalWhitespace:
       if isScalarSemantics {
         matched = scalar.isHorizontalWhitespace && asciiCheck
       } else {
-        matched = previousChar._isHorizontalWhitespace && asciiCheck
+        matched = previous.char._isHorizontalWhitespace && asciiCheck
       }
     case .verticalWhitespace:
       if isScalarSemantics {
         matched = scalar.isNewline && asciiCheck
       } else {
-        matched = previousChar._isNewline && asciiCheck
+        matched = previous.char._isNewline && asciiCheck
       }
     case .newlineSequence:
       if isScalarSemantics {
         matched = scalar.isNewline && asciiCheck
-        if matched && scalar == "\r"
-            && previousIndex >= start && unicodeScalars[previousIndex] == "\n" {
+        if matched && scalar == "\n" && previousIndex > start
+            && unicodeScalars[unicodeScalars.index(before: previousIndex)] == "\r" {
           // Match a full CR-LF sequence even in scalar semantics
-          unicodeScalars.formIndex(after: &previousIndex)
+          unicodeScalars.formIndex(before: &previousIndex)
         }
       } else {
-        matched = previousChar._isNewline && asciiCheck
+        matched = previous.char._isNewline && asciiCheck
       }
     case .whitespace:
       if isScalarSemantics {
         matched = scalar.properties.isWhitespace && asciiCheck
       } else {
-        matched = previousChar.isWhitespace && asciiCheck
+        matched = previous.char.isWhitespace && asciiCheck
       }
     case .word:
       if isScalarSemantics {
         matched = scalar.properties.isAlphabetic && asciiCheck
       } else {
-        matched = previousChar.isWordCharacter && asciiCheck
+        matched = previous.char.isWordCharacter && asciiCheck
       }
     }
 

@@ -121,10 +121,11 @@ extension Compiler.ByteCodeGen {
       }
     }
 
+    let chars: any Collection<Character> = options.reversed ? s.reversed() : s
     guard options.semanticLevel == .graphemeCluster else {
-      for char in s {
+      for char in chars {
         let scalars: any Collection<UnicodeScalar> = options.reversed ? char.unicodeScalars.reversed() : char.unicodeScalars
-        for scalar in char.unicodeScalars {
+        for scalar in scalars {
           emitMatchScalar(scalar)
         }
       }
@@ -150,7 +151,6 @@ extension Compiler.ByteCodeGen {
       return
     }
 
-    let chars: any Collection<Character> = options.reversed ? s.reversed() : s
     for char in chars {
       emitCharacter(char)
     }
