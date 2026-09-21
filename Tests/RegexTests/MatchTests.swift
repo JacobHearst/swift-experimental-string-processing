@@ -1782,6 +1782,32 @@ extension RegexTests {
     firstMatchTest(#"(?<=[^0-9])x"#, input: "1x", match: nil)
     firstMatchTest(#"(?<=[^\p{L}])x"#, input: "1x", match: "x")
     firstMatchTest(#"(?<=[^\p{L}])x"#, input: "ax", match: nil)
+
+    // Backreferences match backwards inside a lookbehind. The lookbehind is
+    // zero-width, so the whole match still includes the capture group.
+    firstMatchTest(#"(a)(?<=\1)b"#, input: "ab", match: "ab")
+    firstMatchTest(#"(?<g>a)(?<=\k<g>)b"#, input: "ab", match: "ab")
+    firstMatchTest(#"(ab)(?<=\1)c"#, input: "abc", match: "abc")
+    // Direction shown directly: \1 is "x", the character *before* the position
+    // is "y", and the character *after* it is "x".
+    firstMatchTest(#"(x)y(?<=\1)"#, input: "xyx", match: nil)
+    // Multi-element backreferences walk back element by element.
+    firstMatchTest(#"(abc)(?<=\1)d"#, input: "xabcd", match: "abcd")
+    firstMatchTest(#"(abc)d(?<=\1)"#, input: "abcd", match: nil)
+    // A multi-scalar grapheme is one element under grapheme semantics and two
+    // under scalar semantics; both step back over the whole capture.
+    firstMatchTest(#"(e\u{301})(?<=\1)5"#, input: "e\u{301}5", match: "e\u{301}5")
+    firstMatchTest(
+      #"(e\u{301})(?<=\1)5"#, input: "e\u{301}5", match: "e\u{301}5",
+      semanticLevel: .unicodeScalar)
+    firstMatchTest(
+      #"(a)(?<=\1)b"#, input: "ab", match: "ab",
+      semanticLevel: .unicodeScalar)
+    // Negative lookbehind inverts the same test.
+    firstMatchTest(#"(a)(?<!\1)b"#, input: "ab", match: nil)
+    firstMatchTest(#"(x)y(?<!\1)"#, input: "xyx", match: "xy")
+    // An unset capture fails the backreference rather than matching empty.
+    firstMatchTest(#"(?:(z)|a)(?<=\1)b"#, input: "ab", match: nil)
   }
 
   func testMatchAnchors() throws {

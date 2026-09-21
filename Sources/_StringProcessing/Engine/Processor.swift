@@ -361,6 +361,28 @@ extension Processor {
     return true
   }
 
+  // Reverse match against the input ending at the current position. Returns
+  // whether it succeeded vs signaling an error.
+  mutating func reverseMatchSeq(
+    _ seq: Substring,
+    isScalarSemantics: Bool
+  ) -> Bool {
+    guard let previous = input.reverseMatchSeq(
+      seq,
+      at: currentPosition,
+      limitedBy: start,
+      isScalarSemantics: isScalarSemantics
+    ) else {
+      // See `reverseMatch`: reaching `start` with elements still unmatched is
+      // a failure, not a success.
+      signalFailure()
+      return false
+    }
+
+    currentPosition = previous
+    return true
+  }
+
   mutating func matchScalar(
     _ s: Unicode.Scalar,
     boundaryCheck: Bool,
@@ -865,6 +887,22 @@ extension Processor {
         controller.step()
       }
 
+    case .reverseBackreference:
+      let (isScalarMode, capture) = payload.captureAndMode
+      let capNum = Int(
+        asserting: capture.rawValue)
+      guard capNum < storedCaptures.count else {
+        fatalError("Should this be an assert?")
+      }
+      let cap = storedCaptures[capNum]
+      guard let range = cap.range else {
+        signalFailure()
+        return
+      }
+      if reverseMatchSeq(input[range], isScalarSemantics: isScalarMode) {
+        controller.step()
+      }
+
     case .beginCapture:
       let capNum = Int(
         asserting: payload.capture.rawValue)
@@ -976,6 +1014,45 @@ extension String {
     }
 
     guard cur <= end else { return nil }
+    return cur
+  }
+
+  /// Match `seq` against the input immediately before `pos`, walking
+  /// backwards, and return the index it starts at.
+  ///
+  /// Like `reverseConsumeBy`, and unlike the `character(before:limitedBy:)`
+  /// helper, this refuses to truncate: if `start` falls inside the element
+  /// being stepped over, the match fails. That is symmetric with forward
+  /// `matchSeq`, whose `cur < end` guard also fails rather than truncating.
+  func reverseMatchSeq(
+    _ seq: Substring,
+    at pos: Index,
+    limitedBy start: Index,
+    isScalarSemantics: Bool
+  ) -> Index? {
+    // TODO: This can be greatly sped up with string internals
+    // TODO: This is also very much quick-check-able
+    var cur = pos
+
+    if isScalarSemantics {
+      for e in seq.unicodeScalars.reversed() {
+        guard cur > start else { return nil }
+        let previous = unicodeScalars.index(before: cur)
+        guard previous >= start, unicodeScalars[previous] == e else {
+          return nil
+        }
+        cur = previous
+      }
+    } else {
+      for e in seq.reversed() {
+        guard cur > start else { return nil }
+        let previous = index(before: cur)
+        guard previous >= start, self[previous] == e else { return nil }
+        cur = previous
+      }
+    }
+
+    guard cur >= start else { return nil }
     return cur
   }
 

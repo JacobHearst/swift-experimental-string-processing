@@ -60,6 +60,7 @@ enum DecodedInstr {
   case assertBy
   case matchBy
   case backreference
+  case reverseBackreference
   case beginCapture
   case endCapture
   case transformCapture
@@ -189,6 +190,8 @@ extension DecodedInstr {
       return .reverseQuantify
     case .backreference:
       return .backreference
+    case .reverseBackreference:
+      return .reverseBackreference
     case .beginCapture:
       return .beginCapture
     case .endCapture:

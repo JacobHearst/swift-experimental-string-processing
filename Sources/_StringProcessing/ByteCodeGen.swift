@@ -79,7 +79,9 @@ extension Compiler.ByteCodeGen {
 
     case let .symbolicReference(id):
       builder.buildUnresolvedReference(
-        id: id, isScalarMode: options.semanticLevel == .unicodeScalar)
+        id: id,
+        isScalarMode: options.semanticLevel == .unicodeScalar,
+        reverse: options.reversed)
 
     case let .changeMatchingOptions(optionSequence):
       if !hasEmittedFirstMatchableAtom {
@@ -175,10 +177,14 @@ extension Compiler.ByteCodeGen {
       }
       let cap = builder.captureRegister(forBackreference: i)
       builder.buildBackreference(
-        cap, isScalarMode: options.semanticLevel == .unicodeScalar)
+        cap,
+        isScalarMode: options.semanticLevel == .unicodeScalar,
+        reverse: options.reversed)
     case .named(let name):
       try builder.buildNamedReference(
-        name, isScalarMode: options.semanticLevel == .unicodeScalar)
+        name,
+        isScalarMode: options.semanticLevel == .unicodeScalar,
+        reverse: options.reversed)
     case .relative:
       throw Unsupported("Backreference kind: \(ref)")
     #if RESILIENT_LIBRARIES

@@ -41,8 +41,8 @@ extension Instruction: CustomStringConvertible {
       return "\(opcode) \(payload.distance)"
     case .assertBy:
       return "\(opcode) \(payload.assertion)"
-    case .backreference:
-      return "\(opcode) \(payload.capture.rawValue)"
+    case .backreference, .reverseBackreference:
+      return "\(opcode) \(payload.captureAndMode.1.rawValue)"
     case .beginCapture:
       return "\(opcode) \(payload.capture.rawValue)"
     case .branch:

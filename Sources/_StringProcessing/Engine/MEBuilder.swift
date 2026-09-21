@@ -383,20 +383,26 @@ extension MEProgram.Builder {
 
   mutating func buildBackreference(
     _ cap: CaptureRegister,
-    isScalarMode: Bool
+    isScalarMode: Bool,
+    reverse: Bool
   ) {
-    instructions.append(
-      .init(.backreference, .init(capture: cap, isScalarMode: isScalarMode)))
+    instructions.append(.init(
+      reverse ? .reverseBackreference : .backreference,
+      .init(capture: cap, isScalarMode: isScalarMode)))
   }
 
-  mutating func buildUnresolvedReference(id: ReferenceID, isScalarMode: Bool) {
-    buildBackreference(.init(0), isScalarMode: isScalarMode)
+  mutating func buildUnresolvedReference(
+    id: ReferenceID, isScalarMode: Bool, reverse: Bool
+  ) {
+    buildBackreference(.init(0), isScalarMode: isScalarMode, reverse: reverse)
     unresolvedReferences[id, default: []].append(lastInstructionAddress)
   }
 
-  mutating func buildNamedReference(_ name: String, isScalarMode: Bool) throws {
+  mutating func buildNamedReference(
+    _ name: String, isScalarMode: Bool, reverse: Bool
+  ) throws {
     let cap = try captureRegister(named: name)
-    buildBackreference(cap, isScalarMode: isScalarMode)
+    buildBackreference(cap, isScalarMode: isScalarMode, reverse: reverse)
   }
 
   // TODO: Mutating because of fail address fixup, drop when
@@ -548,9 +554,11 @@ fileprivate extension MEProgram.Builder {
         throw RegexCompilationError.uncapturedReference
       }
       for use in uses {
+        // The placeholder already carries the direction, so keep its opcode.
+        let opcode = instructions[use.rawValue].opcode
         let (isScalarMode, _) = instructions[use.rawValue].payload.captureAndMode
         instructions[use.rawValue] =
-          Instruction(.backreference,
+          Instruction(opcode,
             .init(capture: .init(offset), isScalarMode: isScalarMode))
       }
     }

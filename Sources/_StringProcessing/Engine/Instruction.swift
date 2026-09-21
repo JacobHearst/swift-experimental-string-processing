@@ -327,6 +327,13 @@ extension Instruction {
     ///
     case backreference
 
+    /// Match a previously captured value against the input immediately
+    /// before the current position, moving backwards over it.
+    ///
+    ///     reverseBackreference(_:CapReg)
+    ///
+    case reverseBackreference
+
     // MARK: Matching: State transitions
 
     // TODO: State transitions need more work. We want
