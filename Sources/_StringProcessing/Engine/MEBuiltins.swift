@@ -736,7 +736,13 @@ extension String {
       }
     case .word:
       if isScalarSemantics {
-        matched = scalar.properties.isAlphabetic && asciiCheck
+        // `isAlphabetic` alone is narrower than the ASCII quick path's `\w`,
+        // which also takes a digit and `_`. The two have to agree, or the
+        // cross-check above traps on any ASCII digit or `_`. Matching the quick
+        // path here makes reverse `\w` answer exactly as forward `\w` does.
+        matched = (scalar.properties.isAlphabetic
+                   || scalar == "_"
+                   || ("0"..."9").contains(scalar)) && asciiCheck
       } else {
         matched = previous.char.isWordCharacter && asciiCheck
       }

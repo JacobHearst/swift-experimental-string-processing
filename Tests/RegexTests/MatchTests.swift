@@ -1966,6 +1966,38 @@ extension RegexTests {
     XCTAssertEqual(try Regex(#"(?<=\d)x"#).firstMatch(in: "\u{e9}5x")?.0, "x")
     XCTAssertEqual(try Regex(#"(?<=[0-9])x"#).firstMatch(in: "\u{e9}5x")?.0, "x")
 
+    // MARK: Scalar-semantics `\w`
+
+    // The ASCII quick path counts a digit and `_` as word characters; the
+    // thorough path's scalar case tested `isAlphabetic` alone, so the two
+    // disagreed and the cross-check assert trapped. No combining mark is
+    // involved -- an ASCII digit or `_` in front of the `\w` is enough.
+    XCTAssertEqual(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "5x")?.0, "x")
+    XCTAssertEqual(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "_x")?.0, "x")
+    XCTAssertEqual(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "ax")?.0, "x")
+    // The lookbehind is tried at every start position, the end of the subject
+    // included, so this trapped on the trailing "5" rather than on the
+    // combining mark it appears to be about.
+    XCTAssertNil(try Regex(#"(?<=\w)5"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "e\u{301}5"))
+    // Reverse `\w` now answers exactly as forward `\w` does, which means the
+    // ASCII quick path's definition: a non-ASCII digit takes the thorough path
+    // and is still not a word character. Their forward analogues over ASCII
+    // cannot be asserted here, because forward `\w` in scalar semantics traps
+    // its own copy of this cross-check -- that half lives on `main` and is out
+    // of scope for this branch.
+    XCTAssertNil(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "\u{665}x"))
+    XCTAssertNil(try Regex(#"\wx"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "\u{665}x"))
+    // Default grapheme semantics goes through `Character.isWordCharacter` and
+    // agreed with the quick path all along.
+    firstMatchTest(#"(?<=\w)x"#, input: "5x", match: "x")
+    firstMatchTest(#"(?<=\w)x"#, input: "_x", match: "x")
+
     // MARK: Reverse-matching paths that are correct today
 
     // Reversed literal emission: CR-LF ordering, the >= 5 byte `matchUTF8`
