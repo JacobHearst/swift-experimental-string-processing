@@ -236,6 +236,44 @@ extension String {
     return substr.isEmpty ? nil : (substr.first!, substr.startIndex)
   }
 
+  /// Returns the grapheme cluster ending at `pos` and its lower bound, bounded
+  /// by `start`.
+  ///
+  /// This is the reverse counterpart of `characterAndEnd(at:limitedBy:)`, and
+  /// like it, truncates the cluster rather than reaching outside the bounds:
+  ///
+  ///   - If `pos` is `start`, this function returns `nil`.
+  ///   - If `start` is between `pos` and the previous grapheme cluster
+  ///     boundary, the returned character is smaller than the one that would be
+  ///     produced by `self[self.index(before: pos)]`, and the returned index is
+  ///     `start` rounded up to a scalar boundary.
+  ///   - If `pos` is itself inside a grapheme cluster, the returned character is
+  ///     only the part of that cluster before `pos`, and the returned index is
+  ///     that cluster's lower bound. `characterAndEnd` behaves the same way at a
+  ///     sub-cluster `end`.
+  ///
+  /// Unlike `character(before:limitedBy:isScalarSemantics:)` this never steps by
+  /// scalar, because `\X` spans a whole grapheme cluster under either semantic
+  /// level.
+  ///
+  /// - Returns: The character ending at `pos`, bounded by `start`, if it exists,
+  ///   along with the lower bound of that character. The lower bound is always
+  ///   scalar-aligned.
+  func characterAndStart(
+    before pos: String.Index,
+    limitedBy start: String.Index
+  ) -> (char: Character, index: String.Index)? {
+    guard pos > start else { return nil }
+    // Breaking graphemes within the bounded slice gives both the truncation at
+    // `start` and the rounding at a sub-cluster `pos` for free. `Substring`
+    // rounds either bound down to a scalar boundary, so a range spanning less
+    // than one scalar comes back empty.
+    let substr = self[start..<pos]
+    return substr.isEmpty
+      ? nil
+      : (substr.last!, substr.index(before: substr.endIndex))
+  }
+
   func matchAnyNonNewline(
     at currentPosition: String.Index,
     limitedBy end: String.Index,
@@ -620,15 +658,24 @@ extension String {
     // TODO: Branch here on scalar semantics
     // Don't want to pay character cost if unnecessary
 
-    let previous = character(before: currentPosition, limitedBy: start, isScalarSemantics: isScalarSemantics)
+    // The forward path spells this as `isScalarSemantics && cc != .anyGrapheme`
+    // before narrowing its step to a single scalar. Here the exclusion has to
+    // cover the whole step, because `character(before:)` is what takes the
+    // single scalar under scalar semantics -- `\X` spans a whole grapheme
+    // cluster under either semantic level, so it needs a grapheme-based step
+    // back that is also safe at a position inside a cluster.
+    let previous = cc == .anyGrapheme
+      ? characterAndStart(before: currentPosition, limitedBy: start)
+      : character(
+          before: currentPosition,
+          limitedBy: start,
+          isScalarSemantics: isScalarSemantics)
     guard let previous else {
       return nil
     }
 
-    // In scalar semantics `previous.index` is already the scalar-aligned
-    // position immediately before `currentPosition` (see `character(before:)`),
-    // so `scalar` is the scalar under test and `previousIndex` is the position
-    // to back up to. Unlike the forward direction, there is no further step to
+    // `previous.index` is the position to back up to, and is already
+    // scalar-aligned. Unlike the forward direction, there is no further step to
     // take here -- the CR-LF case below is the only exception.
     var previousIndex = previous.index
     let scalar = unicodeScalars[previousIndex]
