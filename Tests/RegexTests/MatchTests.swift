@@ -1898,23 +1898,38 @@ extension RegexTests {
     XCTAssertNil(
       try Regex(#"(?<!(z))c"#).firstMatch(in: "abc")?[1].substring)
 
+    // `character(before:limitedBy:isScalarSemantics:)`'s bounded fallback is
+    // only reached when `previous < start`, so it has to slice `start..<pos`;
+    // the `start..<previous` it used to form is inverted by construction and
+    // traps. Reached when the search lower bound is scalar-aligned but sits
+    // inside the grapheme preceding the match -- note that `"e\u{301}5"
+    // .dropFirst()` above does *not* reach it, because `dropFirst()` drops the
+    // whole "e\u{301}" grapheme.
+    let midGrapheme = Substring("e\u{301}5".unicodeScalars.dropFirst(1))
+    // The character before the "5", truncated at the bounds, is the partial
+    // cluster "\u{301}". Each of these agrees with its forward analogue on the
+    // same slice: `.`, `\X` and `\u{301}` all match "\u{301}5" forwards, and
+    // `\w` matches nothing.
+    XCTAssertEqual(
+      try Regex(#"(?<=.)\d"#).firstMatch(in: midGrapheme)?.0, "5")
+    XCTAssertEqual(
+      try Regex(#"(?<=\X)\d"#).firstMatch(in: midGrapheme)?.0, "5")
+    XCTAssertEqual(
+      try Regex(#"(?<=\u{301})\d"#).firstMatch(in: midGrapheme)?.0, "5")
+    XCTAssertNil(
+      try Regex(#"(?<=\w)\d"#).firstMatch(in: midGrapheme))
+    // The truncated cluster is all there is -- the lookbehind cannot reach the
+    // "e" that sits before the search bounds, and does not match a scalar it
+    // never saw.
+    XCTAssertNil(
+      try Regex(#"(?<=e\u{301})\d"#).firstMatch(in: midGrapheme))
+    XCTAssertNil(
+      try Regex(#"(?<=\u{302})\d"#).firstMatch(in: midGrapheme))
+
     // MARK: Cases that trap rather than mismatch
     //
     // These are left commented out because a trap aborts the whole test
     // process; uncomment individually when working the fix.
-
-    // `character(before:limitedBy:isScalarSemantics:)` forms `self[start..<previous]`
-    // in its bounded fallback, but that path is only reached when
-    // `previous < start`, so the range is inverted:
-    //   Swift/Range.swift: Fatal error: Range requires lowerBound <= upperBound
-    // Reached when the search lower bound is scalar-aligned but sits inside the
-    // grapheme preceding the match. Note `"e\u{301}5".dropFirst()` above does
-    // *not* reach it -- dropFirst() drops the whole "e\u{301}" grapheme.
-    // let midGrapheme = Substring("e\u{301}5".unicodeScalars.dropFirst(1))
-    // XCTAssertNil(try Regex(#"(?<=\w)\d"#).firstMatch(in: midGrapheme))
-    // XCTAssertNil(try Regex(#"(?<=.)\d"#).firstMatch(in: midGrapheme))
-    // XCTAssertNil(try Regex(#"(?<=\X)\d"#).firstMatch(in: midGrapheme))
-    // XCTAssertNil(try Regex(#"(?<=\u{301})\d"#).firstMatch(in: midGrapheme))
 
     // `_quickASCIICharacter(before:limitedBy:)` also asserts the character it
     // returns is ASCII, but under scalar semantics `previous` can land on the

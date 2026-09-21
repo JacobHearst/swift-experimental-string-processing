@@ -226,14 +226,24 @@ extension String {
       return (self[previous], previous)
     }
 
-    // TODO: JH - Verify this works as expected
     // `start` must be a sub-character position that is between `pos` and the
     // previous grapheme boundary. This is okay if `start` is on a Unicode scalar
     // boundary, but if it's in the middle of a scalar's code units, there
     // may not be a character to return at all after rounding down. Use
     // `Substring`'s rounding to determine what we can return.
-    let substr = self[start..<previous]
-    return substr.isEmpty ? nil : (substr.first!, substr.startIndex)
+    //
+    // The slice is `start..<pos`, the mirror of forward `characterAndEnd`'s
+    // `pos..<end`. The guard above means this branch is only reached when
+    // `previous < start`, so `start..<previous` would be inverted by
+    // construction; what is left of the element inside the bounds is exactly
+    // `start..<pos`. Taking the *last* character of that slice, rather than the
+    // first, is the other half of the mirror: the character wanted here is the
+    // one ending at `pos`, which is where re-breaking a partial cluster can
+    // leave more than one.
+    let substr = self[start..<pos]
+    return substr.isEmpty
+      ? nil
+      : (substr.last!, substr.index(before: substr.endIndex))
   }
 
   /// Returns the grapheme cluster ending at `pos` and its lower bound, bounded
