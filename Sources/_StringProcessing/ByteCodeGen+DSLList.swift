@@ -778,12 +778,58 @@ fileprivate extension Compiler.ByteCodeGen {
       position += 1
     }
 
-    for range in boundaries.reversed() {
-      var child = list[range]
-      try emitNode(&child)
+    // An isolated option-setting atom, e.g. the `(?i)` in `a(?i)bc`, takes
+    // effect by mutating `options` as it is emitted, so it governs whatever is
+    // emitted after it. Option scoping runs left to right over the source
+    // no matter which order the components are emitted in, so we need to record
+    // the options at the start of each component up front rather
+    // than letting the emitted order decide them.
+    var optionStates: [MatchingOptions] = []
+    optionStates.reserveCapacity(componentCount)
+    for range in boundaries {
+      optionStates.append(options)
+      applyOptionsVisibleToLaterComponents(in: list[range])
     }
 
+    let optionsAfterConcatenation = options
+
+    for i in boundaries.indices.reversed() {
+      options = optionStates[i]
+      var child = list[boundaries[i]]
+      try emitNode(&child)
+    }
+    options = optionsAfterConcatenation
+
     list = list[position...]
+  }
+
+  /// Applies the matching-option changes inside the concatenation component in
+  /// `child` that are visible to the components following it.
+  ///
+  /// Only an isolated option-setting atom is visible that way. A group or a
+  /// capture opens an option scope that closes with it, so a change inside one
+  /// stays there. Every other node either can't change options or only
+  /// contains more nodes, so we walk into it. This mirrors the scoping
+  /// `emitNode` performs, without emitting anything.
+  private mutating func applyOptionsVisibleToLaterComponents(
+    in child: ArraySlice<DSLTree.Node>
+  ) {
+    var position = child.startIndex
+    while position < child.endIndex {
+      switch child[position] {
+      case .atom(.changeMatchingOptions(let sequence)):
+        options.apply(sequence.ast)
+        position += 1
+      case .nonCapturingGroup, .capture:
+        // Skip the whole subtree, it scopes any change it makes.
+        child.skipNode(&position)
+        position += 1
+      default:
+        // The list is a flattened pre-order walk, so stepping by one descends
+        // into a node's children.
+        position += 1
+      }
+    }
   }
 
   @discardableResult

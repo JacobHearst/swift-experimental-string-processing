@@ -1808,6 +1808,23 @@ extension RegexTests {
     firstMatchTest(#"(x)y(?<!\1)"#, input: "xyx", match: "xy")
     // An unset capture fails the backreference rather than matching empty.
     firstMatchTest(#"(?:(z)|a)(?<=\1)b"#, input: "ab", match: nil)
+
+    // A lookbehind's components are emitted right-to-left, but an isolated
+    // matching-option group still scopes left-to-right over the source.
+    firstMatchTest(#"(?<=(?i)abc)x"#, input: "ABCx", match: "x")
+    firstMatchTest(#"(?<=(?s)a.)b"#, input: "a\nb", match: "b")
+    // `(?i)` case-folds "bc" only, not "a".
+    firstMatchTest(#"(?<=a(?i)bc)x"#, input: "aBCx", match: "x")
+    firstMatchTest(#"(?<=a(?i)bc)x"#, input: "Abcx", match: nil)
+    firstMatchTest(#"(?<=ab(?i)c)x"#, input: "abCx", match: "x")
+    firstMatchTest(#"(?<=ab(?i)c)x"#, input: "aBcx", match: nil)
+    // Several in a row, and one that undoes an earlier one.
+    firstMatchTest(#"(?<=(?i)ab(?-i)c)x"#, input: "ABcx", match: "x")
+    firstMatchTest(#"(?<=(?i)ab(?-i)c)x"#, input: "ABCx", match: nil)
+    // A change inside a group stays scoped to that group rather than leaking
+    // to the components that follow it.
+    firstMatchTest(#"(?<=(?:a(?i))bc)x"#, input: "abcx", match: "x")
+    firstMatchTest(#"(?<=(?:a(?i))bc)x"#, input: "aBCx", match: nil)
   }
 
   func testMatchAnchors() throws {
