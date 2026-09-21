@@ -1926,34 +1926,45 @@ extension RegexTests {
     XCTAssertNil(
       try Regex(#"(?<=\u{302})\d"#).firstMatch(in: midGrapheme))
 
-    // MARK: Cases that trap rather than mismatch
-    //
-    // These are left commented out because a trap aborts the whole test
-    // process; uncomment individually when working the fix.
+    // MARK: `_quickASCIICharacter(before:limitedBy:)`
 
-    // `_quickASCIICharacter(before:limitedBy:)` also asserts the character it
-    // returns is ASCII, but under scalar semantics `previous` can land on the
-    // ASCII lead scalar of a multi-scalar cluster, and `self[previous]` then
-    // reports the whole non-ASCII cluster:
-    //   _StringProcessing/ASCII.swift: Assertion failed
-    // Debug-only, and independent of the direction `\X` steps -- these produce
-    // the right values with the assert compiled out.
-    // XCTAssertEqual(try Regex(#"(?<=^\X\X)5"#).matchingSemantics(.unicodeScalar)
-    //   .firstMatch(in: "e\u{301}e\u{301}5")?.0, "5")
-    // XCTAssertNil(try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
-    //   .firstMatch(in: "\u{e9}e\u{301}5e\u{e9}"))
+    // Under scalar semantics the position can sit inside a grapheme cluster, so
+    // the ASCII scalar ending there is not a whole `Character`. The helper's
+    // trailing assert looked the character up anyway and saw the containing
+    // cluster, so these used to trap rather than mismatch.
+    XCTAssertEqual(try Regex(#"(?<=^\X\X)5"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "e\u{301}e\u{301}5")?.0, "5")
+    XCTAssertNil(try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "\u{e9}e\u{301}5e\u{e9}"))
+    // The same assert, reached by splitting a CR-LF pair: the scalar before the
+    // position is the CR, whose `Character` is the whole "\r\n".
+    firstMatchTest(#"(?<=\R)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=\v)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=\s)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[\n])x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=.)x"#, input: "a\r\nx", match: nil, semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[\r\n]{2})x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
 
-    // `_quickASCIICharacter(before:limitedBy:)` asserts the character it returns
-    // is not a CR-LF, but when the position splits a CR-LF pair the returned CR
-    // reports `self[previous] == "\r\n"`:
-    //   _StringProcessing/ASCII.swift: Assertion failed
-    // Debug-only -- with the assert compiled out the results are correct.
-    // firstMatchTest(#"(?<=\R)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    // firstMatchTest(#"(?<=\v)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    // firstMatchTest(#"(?<=\s)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    // firstMatchTest(#"(?<=[\n])x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    // firstMatchTest(#"(?<=.)x"#, input: "a\r\nx", match: nil, semanticLevel: .unicodeScalar)
-    // firstMatchTest(#"(?<=[\r\n]{2})x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    // Reversed, the byte before that ASCII scalar is the last byte of the
+    // preceding scalar, so the helper's `_isSub300StartingByte` guard decided
+    // nothing. It matters for a Prepend scalar such as U+0600, which joins the
+    // ASCII character after it into one cluster: "\u{600}5" is a single
+    // `Character`, so the character before the "x" is that cluster, not the
+    // "5". These are wrong answers in release, at the default semantic level.
+    XCTAssertNil(try Regex(#"(?<=\d)x"#).firstMatch(in: "\u{600}5x"))
+    XCTAssertNil(try Regex(#"(?<=[0-9])x"#).firstMatch(in: "\u{600}5x"))
+    XCTAssertEqual(try Regex(#"(?<=^.)x"#).firstMatch(in: "\u{600}5x")?.0, "x")
+    XCTAssertEqual(
+      try Regex(#"(?<=\u{600}5)x"#).firstMatch(in: "\u{600}5x")?.0, "x")
+    // Each agrees with its forward analogue over the same input.
+    XCTAssertNil(try Regex(#"\dx"#).firstMatch(in: "\u{600}5x"))
+    XCTAssertNil(try Regex(#"[0-9]x"#).firstMatch(in: "\u{600}5x"))
+    XCTAssertEqual(
+      try Regex(#"^.x"#).firstMatch(in: "\u{600}5x")?.0, "\u{600}5x")
+    // A preceding non-ASCII scalar that does not join still matches: the guard
+    // rejects the quick path, not the character.
+    XCTAssertEqual(try Regex(#"(?<=\d)x"#).firstMatch(in: "\u{e9}5x")?.0, "x")
+    XCTAssertEqual(try Regex(#"(?<=[0-9])x"#).firstMatch(in: "\u{e9}5x")?.0, "x")
 
     // MARK: Reverse-matching paths that are correct today
 

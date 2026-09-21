@@ -155,19 +155,26 @@ extension String {
       return (char: previousChar, index: previous, crLF: false)
     }
 
+    // Reversed, `head` is the last byte of the preceding scalar, not the first
+    // byte of the following one, so the forward helper's
+    // `_isSub300StartingByte` test would pass for every continuation byte and
+    // decide nothing. What matters is that nothing joins forwards onto
+    // `previousChar`, and only a Prepend scalar (all >= U+0600, so never ASCII)
+    // or a CR before an LF does. Anything else falls to the thorough path.
     let head = utf8[utf8.index(before: previous)]
-    guard head._isSub300StartingByte else { return nil }
+    guard head._isASCII else { return nil }
 
     if previousChar == ._lineFeed && head == ._carriageReturn {
       utf8.formIndex(before: &previous)
-
-      guard previous == start || utf8[previous]._isSub300StartingByte else {
-        return nil
-      }
+      // GB5 breaks before a CR, so a CR always starts its own cluster.
       return (char: previousChar, index: previous, crLF: true)
     }
 
-    assert(self[previous].isASCII && self[previous] != "\r\n")
+    // Under scalar semantics `previous` can sit inside a grapheme cluster, and
+    // `self[previous]` then reports the whole cluster rather than the scalar
+    // being returned. Only check when `idx` is on a cluster boundary.
+    assert(String.Index(idx, within: self) == nil
+           || (self[previous].isASCII && self[previous] != "\r\n"))
     return (char: previousChar, index: previous, crLF: false)
   }
 
