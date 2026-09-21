@@ -1875,17 +1875,33 @@ extension RegexTests {
     XCTAssertNotEqual(
       try "aaaa".replacing(Regex(#"(?<=aa)a"#), with: "Z"), "aaZZ")
 
+    // A capture inside a lookbehind ends at a position *before* it began, so
+    // `_StoredCapture.endCapture` has to order the two endpoints rather than
+    // forming `begin..<idx` directly.
+    firstMatchTest(#"(?<=(ab))c"#, input: "abc", match: "c")
+    firstMatchTest(#"(?<=(a|xy))c"#, input: "xyc", match: "c")
+    firstMatchTest(#"(?<=((a)b))c"#, input: "abc", match: "c")
+    // The whole match is zero-width past the lookbehind, so the captured text
+    // is the only evidence the range came out the right way round.
+    XCTAssertEqual(
+      try Regex(#"(?<=(ab))c"#).firstMatch(in: "abc")?[1].substring, "ab")
+    XCTAssertEqual(
+      try Regex(#"(?<=(a|xy))c"#).firstMatch(in: "xyc")?[1].substring, "xy")
+    XCTAssertEqual(
+      try Regex(#"(?<=((a)b))c"#).firstMatch(in: "abc")?[1].substring, "ab")
+    XCTAssertEqual(
+      try Regex(#"(?<=((a)b))c"#).firstMatch(in: "abc")?[2].substring, "a")
+    // A capture repeated inside a lookbehind keeps the last iteration.
+    XCTAssertEqual(
+      try Regex(#"(?<=(?:(a)|(b))+)c"#).firstMatch(in: "abc")?[2].substring, "b")
+    // A negative lookbehind discards its captures.
+    XCTAssertNil(
+      try Regex(#"(?<!(z))c"#).firstMatch(in: "abc")?[1].substring)
+
     // MARK: Cases that trap rather than mismatch
     //
     // These are left commented out because a trap aborts the whole test
     // process; uncomment individually when working the fix.
-
-    // A capture inside a lookbehind ends at a position *before* it began, and
-    // `_StoredCapture.endCapture` forms `low..<idx` without normalizing:
-    //   Swift/Range.swift: Fatal error: Range requires lowerBound <= upperBound
-    // firstMatchTest(#"(?<=(ab))c"#, input: "abc", match: "c")
-    // firstMatchTest(#"(?<=(a|xy))c"#, input: "xyc", match: "c")
-    // firstMatchTest(#"(?<=((a)b))c"#, input: "abc", match: "c")
 
     // `character(before:limitedBy:isScalarSemantics:)` forms `self[start..<previous]`
     // in its bounded fallback, but that path is only reached when

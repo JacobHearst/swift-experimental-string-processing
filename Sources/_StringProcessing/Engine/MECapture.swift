@@ -67,11 +67,15 @@ extension Processor {
       _invariantCheck()
       defer { _invariantCheck() }
 
-      guard let low = currentCaptureBegin else {
+      guard let begin = currentCaptureBegin else {
         fatalError("Invariant violated: ending unstarted capture")
       }
 
-      range = low..<idx
+      // The two recorded positions are the endpoints of the captured text, but
+      // which one is lower depends on the direction the group was matched in.
+      // A group inside a lookbehind runs right-to-left, so it ends at a
+      // position *before* it began.
+      range = begin <= idx ? begin..<idx : idx..<begin
       value = nil // TODO: cleaner IPI around this...
       currentCaptureBegin = nil
     }
