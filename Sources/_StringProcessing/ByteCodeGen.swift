@@ -89,7 +89,10 @@ extension Compiler.ByteCodeGen {
 
     case let .unconverted(astAtom):
       if let consumer = try astAtom.ast.generateConsumer(options) {
-        builder.buildConsume(by: consumer)
+        builder.buildConsume(
+          by: consumer,
+          reverse: options.reversed,
+          isScalarSemantics: options.semanticLevel == .unicodeScalar)
       } else {
         throw Unsupported("\(astAtom.ast._patternBase)")
       }
@@ -527,7 +530,10 @@ extension Compiler.ByteCodeGen {
       fatalError("Removed in 'flatteningCustomCharacterClassMembers'")
     case .range:
       let consumer = try member.generateConsumer(options)
-      builder.buildConsume(by: consumer)
+      builder.buildConsume(
+        by: consumer,
+        reverse: options.reversed,
+        isScalarSemantics: options.semanticLevel == .unicodeScalar)
     case .trivia:
       return
       

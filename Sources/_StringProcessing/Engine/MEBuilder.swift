@@ -244,10 +244,17 @@ extension MEProgram.Builder {
   }
 
   mutating func buildConsume(
-    by p: @escaping MEProgram.ConsumeFunction
+    by p: @escaping MEProgram.ConsumeFunction,
+    reverse: Bool,
+    isScalarSemantics: Bool
   ) {
-    instructions.append(.init(
-      .consumeBy, .init(consumer: makeConsumeFunction(p))))
+    let reg = makeConsumeFunction(p)
+    if reverse {
+      instructions.append(.init(
+        .reverseConsumeBy, .init(consumer: reg, isScalar: isScalarSemantics)))
+    } else {
+      instructions.append(.init(.consumeBy, .init(consumer: reg)))
+    }
   }
 
   mutating func buildAssert(

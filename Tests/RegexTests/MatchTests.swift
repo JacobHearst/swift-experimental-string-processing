@@ -1724,6 +1724,64 @@ extension RegexTests {
     XCTAssertNil(try Regex(#"(?<=\w)\d"#).firstMatch(in: split))
 
     firstMatchTest(#"(?<=\w)\d"#, input: "\u{FC}5", match: "5", semanticLevel: .unicodeScalar)
+
+    // MARK: - Reverse matching via `reverseConsumeBy`
+    //
+    // Atoms and custom-character-class ranges lower to a `ConsumeFunction`,
+    // which only knows how to run forwards. Reversed, the element *before*
+    // the position is the one handed to it.
+    firstMatchTest(#"(?<=[\p{L}])5"#, input: "a5", match: "5")
+    firstMatchTest(#"(?<=[[:alpha:]])5"#, input: "a5", match: "5")
+    firstMatchTest(#"(?<=[\p{L}&&[a-z]])5"#, input: "a5", match: "5")
+    firstMatchTest(#"(?<=\p{L})5"#, input: "a5", match: "5")
+    // Direction, stated directly: the only letter is *after* the lookbehind's
+    // position, so it must not succeed.
+    firstMatchTest(#"5(?<=[\p{L}])"#, input: "5y", match: nil)
+    // Failing the test must fail the lookbehind, not consume the wrong way.
+    firstMatchTest(#"(?<=[a-c])x"#, input: "zx", match: nil)
+    firstMatchTest(#"(?<=\p{L})5"#, input: "-5", match: nil)
+
+    // The inverting wrapper in `CharacterProperty.generateConsumer` too.
+    firstMatchTest(#"(?<=\P{L})5"#, input: "-5", match: "5")
+    firstMatchTest(#"(?<=\P{L})5"#, input: "a5", match: nil)
+
+    // Set-operation leaves reach `consumeBy` through `emitCCCMember` as well.
+    firstMatchTest(#"(?<=[[a-z]--[aeiou]])5"#, input: "b5", match: "5")
+    firstMatchTest(#"(?<=[[a-z]--[aeiou]])5"#, input: "a5", match: nil)
+
+    // The step back is by one *element*, so it follows the semantic level.
+    firstMatchTest(#"(?<=\p{L})5"#, input: "a5", match: "5",
+                   semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[a-c])5"#, input: "b5", match: "5",
+                   semanticLevel: .unicodeScalar)
+    // Under grapheme semantics the whole "e\u{301}" is the preceding element.
+    firstMatchTest(#"(?<=\p{L})5"#, input: "e\u{301}5", match: "5")
+
+    // The ASCII-bitset optimization is what normally hides this, so plain
+    // classes break too as soon as it doesn't apply. These throw from
+    // `_firstMatch`'s optimized/unoptimized cross-check.
+    firstMatchTest(#"(?<=abcdefgh[0-9])x"#, input: "abcdefgh1x", match: "x")
+    firstMatchTest(#"(?<=[0-9]abcdefgh)x"#, input: "1abcdefghx", match: "x")
+    firstMatchTest(#"(?<=[^0-9]{3})5"#, input: "abc5", match: "5")
+    // Spelled out, without the test harness in the way:
+    for (pattern, input) in [
+      (#"(?<=[0-9])x"#, "1x"),
+      (#"(?<=[a-c])x"#, "bx"),
+      (#"(?<=[0-9]{2})x"#, "12x"),
+    ] {
+      var regex = try! Regex(pattern)
+      XCTAssertNotNil(try regex.firstMatch(in: input))
+      precondition(regex._forceAction(.addOptions(.disableOptimizations)))
+      XCTAssertNotNil(try regex.firstMatch(in: input))
+    }
+
+    // Inverted custom character classes emit their members as a zero-width
+    // test and then step back one element, so they are correct as soon as the
+    // members themselves consume backwards.
+    firstMatchTest(#"(?<=[^0-9])x"#, input: "ax", match: "x")
+    firstMatchTest(#"(?<=[^0-9])x"#, input: "1x", match: nil)
+    firstMatchTest(#"(?<=[^\p{L}])x"#, input: "1x", match: "x")
+    firstMatchTest(#"(?<=[^\p{L}])x"#, input: "ax", match: nil)
   }
 
   func testMatchAnchors() throws {

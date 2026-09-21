@@ -798,6 +798,23 @@ extension Processor {
       resume(at: nextIndex)
       controller.step()
 
+    case .reverseConsumeBy:
+      let (isScalar, reg) = payload.consumerPayload
+      let consumer = registers[reg]
+      // Run the (forward) consume function over _just_ the element ending at
+      // `currentPosition`. It must report consuming exactly up to here.
+      let previous = isScalar
+        ? input.unicodeScalars.index(currentPosition, offsetBy: -1, limitedBy: start)
+        : input.index(currentPosition, offsetBy: -1, limitedBy: start)
+
+      guard let previous, consumer(input, previous..<currentPosition) == currentPosition else {
+        signalFailure()
+        return
+      }
+
+      currentPosition = previous
+      controller.step()
+
     case .assertBy:
       let payload = payload.assertion
       do {

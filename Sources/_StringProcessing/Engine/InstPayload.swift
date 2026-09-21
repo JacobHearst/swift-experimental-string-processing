@@ -249,6 +249,14 @@ extension Instruction.Payload {
     interpret()
   }
 
+  init(consumer: ConsumeFunctionRegister, isScalar: Bool) {
+    self.init(isScalar ? 1 : 0, consumer)
+  }
+  var consumerPayload: (isScalar: Bool, ConsumeFunctionRegister) {
+    let pair: (UInt64, ConsumeFunctionRegister) = interpretPair()
+    return (isScalar: pair.0 == 1, pair.1)
+  }
+
   init(addr: InstructionAddress) {
     self.init(addr)
   }

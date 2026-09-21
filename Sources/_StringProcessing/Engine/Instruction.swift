@@ -211,6 +211,15 @@ extension Instruction {
     /// Operand: Consume function register to call.
     case consumeBy
 
+    /// Reverse the input position by calling the consume function on the
+    /// element immediately before the current position. The consume function
+    /// must report that it consumed exactly up to the current position.
+    ///
+    /// Operand: the payload contains
+    /// - The consume function register to call
+    /// - If we are in scalar mode or not
+    case reverseConsumeBy
+
     /// Lookaround assertion operation. Performs a zero width assertion based on
     /// the assertion type and options stored in the payload
     ///
@@ -434,6 +443,7 @@ extension Instruction {
   var consumeFunctionRegister: ConsumeFunctionRegister? {
     switch opcode {
     case .consumeBy: return payload.consumer
+    case .reverseConsumeBy: return payload.consumerPayload.1
     default: return nil
     }
   }

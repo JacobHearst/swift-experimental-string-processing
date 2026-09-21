@@ -58,6 +58,13 @@ extension Instruction: CustomStringConvertible {
       return "\(opcode) \(addr) int[\(int)]"
     case .consumeBy:
       return "\(opcode) consumer[\(payload.consumer)]"
+    case .reverseConsumeBy:
+      let (isScalar, reg) = payload.consumerPayload
+      if isScalar {
+        return "reverseConsumeByScalar consumer[\(reg)]"
+      } else {
+        return "reverseConsumeBy consumer[\(reg)]"
+      }
     case .endCapture:
       return "\(opcode) \(payload.capture.rawValue)"
     case .match:

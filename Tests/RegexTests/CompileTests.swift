@@ -55,6 +55,8 @@ enum DecodedInstr {
   case matchUTF8
   case reverseMatchUTF8
   case consumeBy
+  case reverseConsumeBy
+  case reverseConsumeByScalar
   case assertBy
   case matchBy
   case backreference
@@ -166,6 +168,13 @@ extension DecodedInstr {
       }
     case .consumeBy:
       return .consumeBy
+    case .reverseConsumeBy:
+      let (isScalar, _) = payload.consumerPayload
+      if isScalar {
+        return .reverseConsumeByScalar
+      } else {
+        return .reverseConsumeBy
+      }
     case .matchAnyNonNewline:
       return .matchAnyNonNewline
     case .reverseMatchAnyNonNewline:
