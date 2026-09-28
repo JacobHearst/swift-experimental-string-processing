@@ -973,6 +973,77 @@ class RegexDSLTests: XCTestCase {
     }
   }
   
+  func testLookbehindAssertions() throws {
+    // Positive lookbehind, builder-closure initializer.
+    let price = Regex {
+      Lookbehind { "USD" }
+      OneOrMore(.digit)
+    }
+    XCTAssertEqual(try price.firstMatch(in: "EUR5 USD42")?.output, "42")
+    XCTAssertNil(try price.firstMatch(in: "EUR5"))
+    XCTAssertNil(try price.firstMatch(in: "42"))
+
+    // Positive lookbehind, component initializer.
+    let afterDigit = Regex {
+      Lookbehind(CharacterClass.digit)
+      "x"
+    }
+    XCTAssertEqual(try afterDigit.firstMatch(in: "ax 1x")?.output, "x")
+    XCTAssertNil(try afterDigit.firstMatch(in: "ax"))
+
+    // Negative lookbehind, builder-closure initializer.
+    let notAfterA = Regex {
+      NegativeLookbehind { "a" }
+      "b"
+    }
+    let abcb = "abcb"
+    XCTAssertEqual(
+      try notAfterA.firstMatch(in: abcb)?.range.lowerBound,
+      abcb.index(abcb.startIndex, offsetBy: 3))
+    XCTAssertNotNil(try notAfterA.firstMatch(in: "b"))
+    XCTAssertNil(try notAfterA.firstMatch(in: "ab"))
+
+    // Negative lookbehind, component initializer.
+    let notAfterDigit = Regex {
+      NegativeLookbehind(CharacterClass.digit)
+      "x"
+    }
+    XCTAssertNil(try notAfterDigit.firstMatch(in: "1x"))
+    XCTAssertNotNil(try notAfterDigit.firstMatch(in: "ax"))
+
+    // Lookbehind and lookahead around the same match.
+    let between = Regex {
+      Lookbehind { "a" }
+      "b"
+      Lookahead { "c" }
+    }
+    XCTAssertEqual(try between.firstMatch(in: "xbc abc")?.output, "b")
+    XCTAssertNil(try between.firstMatch(in: "abd"))
+
+    // Captures inside a lookbehind are numbered and bound.
+    let captured = Regex {
+      Lookbehind { Capture { "bc" } }
+      "x"
+    }
+    let match = try XCTUnwrap(captured.firstMatch(in: "abcx"))
+    XCTAssertEqual(match.output.0, "x")
+    XCTAssertEqual(match.output.1, "bc")
+
+    // The DSL agrees with the equivalent regex literals.
+    let subject = "EUR5 USD42 USD7"
+    let literal = try Regex("(?<=USD)\\d+")
+    XCTAssertEqual(
+      subject.matches(of: price).map(\.range),
+      subject.matches(of: literal).map(\.range))
+    XCTAssertEqual(subject.matches(of: price).count, 2)
+    let negLiteral = try Regex("(?<!a)b")
+    let bab = "bab b"
+    XCTAssertEqual(
+      bab.matches(of: notAfterA).map(\.range),
+      bab.matches(of: negLiteral).map(\.range))
+    XCTAssertEqual(bab.matches(of: notAfterA).count, 2)
+  }
+
   func testCanOnlyMatchAtStart() throws {
     func expectCanOnlyMatchAtStart(
       _ expectation: Bool,
