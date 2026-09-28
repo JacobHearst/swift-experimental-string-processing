@@ -80,6 +80,11 @@ extension DSLList {
     case .nonCapturingGroup(let kind) where kind.isNegativeLookahead:
       return .some(nil)
 
+    // A lookbehind is zero-width and matches its contents in reverse, so its
+    // contents aren't the atom that must match next.
+    case .nonCapturingGroup(let kind) where kind.isLookbehind:
+      return .some(nil)
+
     // Bail out early if this group changes options.
     // TODO: Allow some/all options changes.
     case .nonCapturingGroup(let kind):
@@ -221,6 +226,13 @@ extension DSLList {
       for _ in 0..<2 {
         _ = autoPossessifyNextQuantification(&position, options: &options)
       }
+
+    // A lookbehind's contents are matched in reverse, so the following-atom
+    // analysis doesn't apply inside it. Skip the body without possessifying.
+    case .nonCapturingGroup(let kind) where kind.isLookbehind:
+      position += 1
+      skipNode(&position)
+      position += 1
 
     case .nonCapturingGroup(let kind):
       position += 1

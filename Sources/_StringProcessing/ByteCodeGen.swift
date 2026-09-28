@@ -140,7 +140,6 @@ extension Compiler.ByteCodeGen {
     // Fast path for eliding boundary checks for an all ascii quoted literal
     if optimizationsEnabled && s.allSatisfy(\.isASCII) && !s.isEmpty {
       let boundaryIdx = options.reversed ? s.unicodeScalars.indices.first! : s.unicodeScalars.indices.last!
-      let reversed = options.reversed
       let indices: any Collection<String.UnicodeScalarIndex> = options.reversed
         ? s.unicodeScalars.indices.reversed()
         : s.unicodeScalars.indices

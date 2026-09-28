@@ -117,7 +117,7 @@ extension Processor {
     self.matchMode = matchMode
 
     self.metrics = ProcessorMetrics(
-      isTracingEnabled: true,
+      isTracingEnabled: program.enableTracing,
       shouldMeasureMetrics: program.enableMetrics)
 
     self.currentPosition = searchBounds.lowerBound

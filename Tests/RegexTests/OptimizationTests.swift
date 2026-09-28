@@ -65,4 +65,23 @@ import Testing
       }
     }
   }
+
+  @available(macOS 9999, *)
+  @Test(arguments: [
+    #"a*(?<=b)a"#,       // lookbehind isn't the atom following the quantifier
+    #"a*(?<!b)a"#,
+    #"(?<=a(a+)b)c"#,    // lookbehind bodies are matched in reverse
+    #"(?<!a(a+)b)c"#,
+  ])
+  func noAutoPossessifyWithLookbehind(pattern: String) throws {
+    var list = try Regex(pattern).program.list
+    list.autoPossessify()
+    for node in list.nodes {
+      switch node {
+      case .quantification(_, let kind):
+        #expect(kind.quantificationKind?.ast != .possessive, "Unexpected possessification in '\(pattern)'")
+      default: break
+      }
+    }
+  }
 }

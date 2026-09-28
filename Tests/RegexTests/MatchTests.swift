@@ -752,6 +752,14 @@ extension RegexTests {
       ("aaaaA", "aaaaA"),
       ("aaaaa", "aaaaa"))
 
+    // - lookbehinds
+    firstMatchTests(
+      "a*(?<=b)a",
+      ("ba", "a"))
+    firstMatchTests(
+      "(?<=a(a+)b)c",
+      ("aaaabc", "c"))
+
     // XFAIL'd possessive tests
     firstMatchTests(
       "a?+a",
