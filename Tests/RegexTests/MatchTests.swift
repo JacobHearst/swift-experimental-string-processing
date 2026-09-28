@@ -1668,6 +1668,13 @@ extension RegexTests {
   }
 
   func testLookbehinds() throws {
+    // MARK: - Basic forms
+    //
+    // The everyday shapes of a lookbehind, in both polarities, before the
+    // reverse-matching edge cases further down.
+
+    // Every spelling of a positive lookbehind: `(?<=`, `(*plb:` and
+    // `(*positive_lookbehind:`.
     firstMatchTest(
       #"(?<=USD)\d+"#, input: "Price: USD100", match: "100")
     firstMatchTest(
@@ -1676,9 +1683,8 @@ extension RegexTests {
       #"(*positive_lookbehind:USD)\d+"#,
       input: "Price: USD100", match: "100")
 
-    firstMatchTest(
-      #"\d{3}(?<=USD\d{3})"#, input: "Price: USD100", match: "100")
-
+    // Every spelling of a negative lookbehind: `(?<!`, `(*nlb:` and
+    // `(*negative_lookbehind:`.
     firstMatchTest(
       #"(?<!USD)\d+"#, input: "Price: JYP100", match: "100")
     firstMatchTest(
@@ -1687,9 +1693,14 @@ extension RegexTests {
       #"(*negative_lookbehind:USD)\d+"#,
       input: "Price: JYP100", match: "100")
 
+    // The lookbehind may follow the text it inspects: the match consumes
+    // `\d{3}` first and the zero-width assertion then looks back over it.
+    firstMatchTest(
+      #"\d{3}(?<=USD\d{3})"#, input: "Price: USD100", match: "100")
     firstMatchTest(
       #"\d{3}(?<!USD\d{3})"#, input: "Price: JYP100", match: "100")
 
+    // A literal body, and alternatives of different lengths.
     firstMatchTest(#"(?<=abc)def"#, input: "abcdefg", match: "def")
     firstMatchTests(
       #"(?<=az|b|c)def"#,
@@ -1698,7 +1709,18 @@ extension RegexTests {
       ("cdefg", "def"),
       ("123defg", nil)
     )
+    // The same literal body under scalar semantics.
+    firstMatchTest(#"(?<=abc)def"#, input: "abcdef", match: "def", semanticLevel: .unicodeScalar)
 
+    // Exactly enough text before the position, and one or two elements too
+    // little; a class with nothing before it at all also fails.
+    firstMatchTest(#"(?<=abcdef)\d"#, input: "abcdef7", match: "7")
+    firstMatchTest(#"(?<=abc)def"#, input: "bcdef", match: nil)
+    firstMatchTest(#"(?<=abc)def"#, input: "cdef", match: nil)
+    firstMatchTest(#"(?<=[abc])x"#, input: "x", match: nil)
+
+    // Variable-length bodies: a bounded repeat under `^`, wildcard classes
+    // between bounded repeats, and an unbounded `*`.
     firstMatchTests(
       #"(?<=^\d{1,3})abc"#,
       ("123abc", "abc"),
@@ -1713,7 +1735,10 @@ extension RegexTests {
       input: "123-_+/-789suffix",
       match: "suffix"
     )
+    firstMatchTest(#"(?<=[a-c]*)5"#, input: "abc5", match: "5")
 
+    // A lookahead nested inside a lookbehind, checked against the text that
+    // follows the outer position.
     firstMatchTest(#"abcd(?<=c(?=d)d)"#, input: "abcdefg", match: "abcd")
     firstMatchTest(#"abcd(?<=cd(?=d).)"#, input: "abcdefg", match: nil)
     firstMatchTest(#"abcd(?<=c(?=e)d)"#, input: "abcdefg", match: nil)
@@ -1721,336 +1746,11 @@ extension RegexTests {
     firstMatchTest(#"abcd(?<=bc(?=de)d)"#, input: "abcdefg", match: "abcd")
     firstMatchTest(#"abcd(?<=bc(?=de).)"#, input: "abcdefg", match: "abcd")
 
-    firstMatchTest(#"(?<=abcdef)\d"#, input: "abcdef7", match: "7")
-    firstMatchTest(#"(?<=abc)def"#, input: "bcdef", match: nil)
-    firstMatchTest(#"(?<=abc)def"#, input: "cdef", match: nil)
-    firstMatchTest(#"(?<=abc)def"#, input: "abcdef", match: "def", semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=[abc])x"#, input: "x", match: nil)
-    firstMatchTest(#"(?<=[a-c]*)5"#, input: "abc5", match: "5")
-
-    let split = "e\u{301}5".dropFirst()   // starts inside "e\u{301}"
-    XCTAssertNil(try Regex(#"(?<=\w)\d"#).firstMatch(in: split))
-
-    firstMatchTest(#"(?<=\w)\d"#, input: "\u{FC}5", match: "5", semanticLevel: .unicodeScalar)
-
-    // MARK: - Edge cases in reverse matching
+    // MARK: - Reversed pattern structure
     //
-    // Each `xfail: true` case below states the *correct* expectation, so it
-    // starts passing-as-expected-failure and will fail loudly once fixed.
-
-    // `reverseConsumeBy` regression cases: atoms and CCC ranges lower to a
-    // `ConsumeFunction`, which only knows how to run forwards. Reversed, the
-    // element *before* the position is the one handed to it.
-    firstMatchTest(#"(?<=[\p{L}])5"#, input: "a5", match: "5")
-    firstMatchTest(#"(?<=[[:alpha:]])5"#, input: "a5", match: "5")
-    firstMatchTest(#"(?<=[\p{L}&&[a-z]])5"#, input: "a5", match: "5")
-    firstMatchTest(#"(?<=\p{L})5"#, input: "a5", match: "5")
-    // Direction, stated directly: the only letter is *after* the lookbehind's
-    // position, so it must not succeed.
-    firstMatchTest(#"5(?<=[\p{L}])"#, input: "5y", match: nil)
-    // Failing the test must fail the lookbehind, not consume the wrong way.
-    firstMatchTest(#"(?<=[a-c])x"#, input: "zx", match: nil)
-    firstMatchTest(#"(?<=\p{L})5"#, input: "-5", match: nil)
-
-    // The inverting wrapper in `CharacterProperty.generateConsumer` too.
-    firstMatchTest(#"(?<=\P{L})5"#, input: "-5", match: "5")
-    firstMatchTest(#"(?<=\P{L})5"#, input: "a5", match: nil)
-
-    // Set-operation leaves reach `consumeBy` through `emitCCCMember` as well.
-    firstMatchTest(#"(?<=[[a-z]--[aeiou]])5"#, input: "b5", match: "5")
-    firstMatchTest(#"(?<=[[a-z]--[aeiou]])5"#, input: "a5", match: nil)
-
-    // The step back is by one *element*, so it follows the semantic level.
-    firstMatchTest(#"(?<=\p{L})5"#, input: "a5", match: "5",
-                   semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=[a-c])5"#, input: "b5", match: "5",
-                   semanticLevel: .unicodeScalar)
-    // Under grapheme semantics the whole "e\u{301}" is the preceding element.
-    firstMatchTest(#"(?<=\p{L})5"#, input: "e\u{301}5", match: "5")
-
-    // The ASCII-bitset optimization is what normally hides this, so plain
-    // classes break too as soon as it doesn't apply. These throw from
-    // `_firstMatch`'s optimized/unoptimized cross-check.
-    firstMatchTest(#"(?<=abcdefgh[0-9])x"#, input: "abcdefgh1x", match: "x")
-    firstMatchTest(#"(?<=[0-9]abcdefgh)x"#, input: "1abcdefghx", match: "x")
-    firstMatchTest(#"(?<=[^0-9]{3})5"#, input: "abc5", match: "5")
-    // Spelled out, without the test harness in the way:
-    for (pattern, input) in [
-      (#"(?<=[0-9])x"#, "1x"),
-      (#"(?<=[a-c])x"#, "bx"),
-      (#"(?<=[0-9]{2})x"#, "12x"),
-    ] {
-      var regex = try! Regex(pattern)
-      XCTAssertNotNil(try regex.firstMatch(in: input))
-      precondition(regex._forceAction(.addOptions(.disableOptimizations)))
-      XCTAssertNotNil(try regex.firstMatch(in: input))
-    }
-
-    // Inverted custom character classes emit their members as a zero-width
-    // test and then step back one element, so they are correct as soon as the
-    // members themselves consume backwards.
-    firstMatchTest(#"(?<=[^0-9])x"#, input: "ax", match: "x")
-    firstMatchTest(#"(?<=[^0-9])x"#, input: "1x", match: nil)
-    firstMatchTest(#"(?<=[^\p{L}])x"#, input: "1x", match: "x")
-    firstMatchTest(#"(?<=[^\p{L}])x"#, input: "ax", match: nil)
-
-    // Backreferences match backwards inside a lookbehind. The lookbehind is
-    // zero-width, so the whole match still includes the capture group.
-    firstMatchTest(#"(a)(?<=\1)b"#, input: "ab", match: "ab")
-    firstMatchTest(#"(?<g>a)(?<=\k<g>)b"#, input: "ab", match: "ab")
-    firstMatchTest(#"(ab)(?<=\1)c"#, input: "abc", match: "abc")
-    // Direction shown directly: \1 is "x", the character *before* the position
-    // is "y", and the character *after* it is "x".
-    firstMatchTest(#"(x)y(?<=\1)"#, input: "xyx", match: nil)
-    // Multi-element backreferences walk back element by element.
-    firstMatchTest(#"(abc)(?<=\1)d"#, input: "xabcd", match: "abcd")
-    firstMatchTest(#"(abc)d(?<=\1)"#, input: "abcd", match: nil)
-    // A multi-scalar grapheme is one element under grapheme semantics and two
-    // under scalar semantics; both step back over the whole capture.
-    firstMatchTest(#"(e\u{301})(?<=\1)5"#, input: "e\u{301}5", match: "e\u{301}5")
-    firstMatchTest(
-      #"(e\u{301})(?<=\1)5"#, input: "e\u{301}5", match: "e\u{301}5",
-      semanticLevel: .unicodeScalar)
-    firstMatchTest(
-      #"(a)(?<=\1)b"#, input: "ab", match: "ab",
-      semanticLevel: .unicodeScalar)
-    // Negative lookbehind inverts the same test.
-    firstMatchTest(#"(a)(?<!\1)b"#, input: "ab", match: nil)
-    firstMatchTest(#"(x)y(?<!\1)"#, input: "xyx", match: "xy")
-    // An unset capture fails the backreference rather than matching empty.
-    firstMatchTest(#"(?:(z)|a)(?<=\1)b"#, input: "ab", match: nil)
-
-    // `\X` spans a whole grapheme cluster under either semantic level, so
-    // reversed it backs up a whole cluster rather than a single scalar. `^`
-    // right after the step is what makes the difference observable.
-    //
-    // These use `Regex` directly rather than `firstMatchTest`, because that
-    // helper's cross-check wraps the input as `"\u{e9}\(input)e\u{e9}"`, which
-    // trips the unrelated `_quickASCIICharacter(before:)` assert below.
-    firstMatchTest(#"(?<=^\X)5"#, input: "e\u{301}5", match: "5")
-    XCTAssertEqual(
-      try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "e\u{301}5")?.0, "5")
-    // A cluster whose scalars are all non-ASCII, and the negative form.
-    XCTAssertEqual(
-      try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "\u{1F1FA}\u{1F1F8}5")?.0, "5")
-    XCTAssertNil(
-      try Regex(#"(?<!\X)5"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "e\u{301}5"))
-    // Backing up exactly one cluster, not more: "x" is its own cluster, so `^`
-    // fails one cluster further back.
-    XCTAssertNil(
-      try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "e\u{301}x5"))
-    // CR-LF is a single cluster, so `\X` steps over both scalars.
-    XCTAssertEqual(
-      try Regex(#"(?<=^\X)x"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "\r\nx")?.0, "x")
-    // Plain ASCII is unaffected in either direction.
-    XCTAssertEqual(
-      try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "a5")?.0, "5")
-    // Two clusters in a row is in the trapping section below -- it is correct
-    // now, but reaches the same `_quickASCIICharacter(before:)` assert.
-
-    // A lookbehind's components are emitted right-to-left, but an isolated
-    // matching-option group still scopes left-to-right over the source.
-    firstMatchTest(#"(?<=(?i)abc)x"#, input: "ABCx", match: "x")
-    firstMatchTest(#"(?<=(?s)a.)b"#, input: "a\nb", match: "b")
-    // `(?i)` case-folds "bc" only, not "a".
-    firstMatchTest(#"(?<=a(?i)bc)x"#, input: "aBCx", match: "x")
-    firstMatchTest(#"(?<=a(?i)bc)x"#, input: "Abcx", match: nil)
-    firstMatchTest(#"(?<=ab(?i)c)x"#, input: "abCx", match: "x")
-    firstMatchTest(#"(?<=ab(?i)c)x"#, input: "aBcx", match: nil)
-    // Several in a row, and one that undoes an earlier one.
-    firstMatchTest(#"(?<=(?i)ab(?-i)c)x"#, input: "ABcx", match: "x")
-    firstMatchTest(#"(?<=(?i)ab(?-i)c)x"#, input: "ABCx", match: nil)
-    // A change inside a group stays scoped to that group rather than leaking
-    // to the components that follow it.
-    firstMatchTest(#"(?<=(?:a(?i))bc)x"#, input: "abcx", match: "x")
-    firstMatchTest(#"(?<=(?:a(?i))bc)x"#, input: "aBCx", match: nil)
-    // The scoped spellings are emitted as a single node and are unaffected.
-    firstMatchTest(#"(?<=(?i:abc))x"#, input: "ABCx", match: "x")
-    firstMatchTest(#"(?<=(?s:a.))b"#, input: "a\nb", match: "b")
-
-    // Reverse matching is clamped to `searchBounds.lowerBound` rather than
-    // `subjectBounds.lowerBound`, so on repeat searches a lookbehind cannot see
-    // text an earlier match consumed. Both values below should be the second
-    // argument.
-    XCTAssertNotEqual(
-      try "aaaa".matches(of: Regex(#"(?<=aa)a"#)).count, 2)
-    XCTAssertNotEqual(
-      try "aaaa".replacing(Regex(#"(?<=aa)a"#), with: "Z"), "aaZZ")
-
-    // A capture inside a lookbehind ends at a position *before* it began, so
-    // `_StoredCapture.endCapture` has to order the two endpoints rather than
-    // forming `begin..<idx` directly.
-    firstMatchTest(#"(?<=(ab))c"#, input: "abc", match: "c")
-    firstMatchTest(#"(?<=(a|xy))c"#, input: "xyc", match: "c")
-    firstMatchTest(#"(?<=((a)b))c"#, input: "abc", match: "c")
-    // The whole match is zero-width past the lookbehind, so the captured text
-    // is the only evidence the range came out the right way round.
-    XCTAssertEqual(
-      try Regex(#"(?<=(ab))c"#).firstMatch(in: "abc")?[1].substring, "ab")
-    XCTAssertEqual(
-      try Regex(#"(?<=(a|xy))c"#).firstMatch(in: "xyc")?[1].substring, "xy")
-    XCTAssertEqual(
-      try Regex(#"(?<=((a)b))c"#).firstMatch(in: "abc")?[1].substring, "ab")
-    XCTAssertEqual(
-      try Regex(#"(?<=((a)b))c"#).firstMatch(in: "abc")?[2].substring, "a")
-    // A capture repeated inside a lookbehind keeps the last iteration.
-    XCTAssertEqual(
-      try Regex(#"(?<=(?:(a)|(b))+)c"#).firstMatch(in: "abc")?[2].substring, "b")
-    // A negative lookbehind discards its captures.
-    XCTAssertNil(
-      try Regex(#"(?<!(z))c"#).firstMatch(in: "abc")?[1].substring)
-
-    // Groups are numbered by their position in the pattern, not by the order
-    // reverse emission visits them in.
-    let siblings = try Regex(#"(?<=(a)(b))c"#).firstMatch(in: "abc")
-    XCTAssertEqual(siblings?[1].substring, "a")
-    XCTAssertEqual(siblings?[2].substring, "b")
-    let nestedSiblings = try Regex(#"(?<=((a)(b))(c))d"#).firstMatch(in: "abcd")
-    XCTAssertEqual(nestedSiblings?[1].substring, "ab")
-    XCTAssertEqual(nestedSiblings?[2].substring, "a")
-    XCTAssertEqual(nestedSiblings?[3].substring, "b")
-    XCTAssertEqual(nestedSiblings?[4].substring, "c")
-    // Named lookups resolve through the same source-order numbering.
-    let named = try Regex(#"(?<=(?<x>a)(?<y>b))c"#).firstMatch(in: "abc")
-    XCTAssertEqual(named?["x"]?.substring, "a")
-    XCTAssertEqual(named?["y"]?.substring, "b")
-    // Groups on either side of a lookbehind keep counting across it.
-    let surrounding = try Regex(#"(a)(?<=(x)(a))(b)"#).firstMatch(in: "xab")
-    XCTAssertEqual(surrounding?[1].substring, "a")
-    XCTAssertEqual(surrounding?[2].substring, "x")
-    XCTAssertEqual(surrounding?[3].substring, "a")
-    XCTAssertEqual(surrounding?[4].substring, "b")
-
-    // A greedy quantifier inside a lookbehind gives repetitions back one at a
-    // time, most first, like its forward analogue. Each of the leading `a`s
-    // below only matches once the group has surrendered enough repetitions, so
-    // the capture shows the order the backtrack positions were replayed in.
-    // One case per quantifier payload: char, bitset, dot and builtin class.
-    XCTAssertEqual(
-      try Regex(#"(?<=a(a+b))c"#).firstMatch(in: "aaaabc")?[1].substring, "aaab")
-    XCTAssertEqual(
-      try Regex(#"(?<=a([ab]+)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aaa")
-    XCTAssertEqual(
-      try Regex(#"(?<=a(.+)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aaa")
-    XCTAssertEqual(
-      try Regex(#"(?<=a(\w+)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aaa")
-    XCTAssertEqual(
-      try Regex(#"(?<=aa(a{1,3})b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aa")
-    // Reluctant quantifiers were already correct; they must stay minimal.
-    XCTAssertEqual(
-      try Regex(#"(?<=a(a+?)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "a")
-    // Same again stepping by unicode scalars rather than characters.
-    XCTAssertEqual(
-      try Regex(#"(?<=a(a+b))c"#).matchingSemantics(.unicodeScalar)
-        .firstMatch(in: "aaaabc")?[1].substring, "aaab")
-
-    // `character(before:limitedBy:isScalarSemantics:)`'s bounded fallback is
-    // only reached when `previous < start`, so it has to slice `start..<pos`;
-    // the `start..<previous` it used to form is inverted by construction and
-    // traps. Reached when the search lower bound is scalar-aligned but sits
-    // inside the grapheme preceding the match -- note that `"e\u{301}5"
-    // .dropFirst()` above does *not* reach it, because `dropFirst()` drops the
-    // whole "e\u{301}" grapheme.
-    let midGrapheme = Substring("e\u{301}5".unicodeScalars.dropFirst(1))
-    // The character before the "5", truncated at the bounds, is the partial
-    // cluster "\u{301}". Each of these agrees with its forward analogue on the
-    // same slice: `.`, `\X` and `\u{301}` all match "\u{301}5" forwards, and
-    // `\w` matches nothing.
-    XCTAssertEqual(
-      try Regex(#"(?<=.)\d"#).firstMatch(in: midGrapheme)?.0, "5")
-    XCTAssertEqual(
-      try Regex(#"(?<=\X)\d"#).firstMatch(in: midGrapheme)?.0, "5")
-    XCTAssertEqual(
-      try Regex(#"(?<=\u{301})\d"#).firstMatch(in: midGrapheme)?.0, "5")
-    XCTAssertNil(
-      try Regex(#"(?<=\w)\d"#).firstMatch(in: midGrapheme))
-    // The truncated cluster is all there is -- the lookbehind cannot reach the
-    // "e" that sits before the search bounds, and does not match a scalar it
-    // never saw.
-    XCTAssertNil(
-      try Regex(#"(?<=e\u{301})\d"#).firstMatch(in: midGrapheme))
-    XCTAssertNil(
-      try Regex(#"(?<=\u{302})\d"#).firstMatch(in: midGrapheme))
-
-    // MARK: `_quickASCIICharacter(before:limitedBy:)`
-
-    // Under scalar semantics the position can sit inside a grapheme cluster, so
-    // the ASCII scalar ending there is not a whole `Character`. The helper's
-    // trailing assert looked the character up anyway and saw the containing
-    // cluster, so these used to trap rather than mismatch.
-    XCTAssertEqual(try Regex(#"(?<=^\X\X)5"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "e\u{301}e\u{301}5")?.0, "5")
-    XCTAssertNil(try Regex(#"(?<=^\X)5"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "\u{e9}e\u{301}5e\u{e9}"))
-    // The same assert, reached by splitting a CR-LF pair: the scalar before the
-    // position is the CR, whose `Character` is the whole "\r\n".
-    firstMatchTest(#"(?<=\R)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=\v)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=\s)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=[\n])x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=.)x"#, input: "a\r\nx", match: nil, semanticLevel: .unicodeScalar)
-    firstMatchTest(#"(?<=[\r\n]{2})x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
-
-    // Reversed, the byte before that ASCII scalar is the last byte of the
-    // preceding scalar, so the helper's `_isSub300StartingByte` guard decided
-    // nothing. It matters for a Prepend scalar such as U+0600, which joins the
-    // ASCII character after it into one cluster: "\u{600}5" is a single
-    // `Character`, so the character before the "x" is that cluster, not the
-    // "5". These are wrong answers in release, at the default semantic level.
-    XCTAssertNil(try Regex(#"(?<=\d)x"#).firstMatch(in: "\u{600}5x"))
-    XCTAssertNil(try Regex(#"(?<=[0-9])x"#).firstMatch(in: "\u{600}5x"))
-    XCTAssertEqual(try Regex(#"(?<=^.)x"#).firstMatch(in: "\u{600}5x")?.0, "x")
-    XCTAssertEqual(
-      try Regex(#"(?<=\u{600}5)x"#).firstMatch(in: "\u{600}5x")?.0, "x")
-    // Each agrees with its forward analogue over the same input.
-    XCTAssertNil(try Regex(#"\dx"#).firstMatch(in: "\u{600}5x"))
-    XCTAssertNil(try Regex(#"[0-9]x"#).firstMatch(in: "\u{600}5x"))
-    XCTAssertEqual(
-      try Regex(#"^.x"#).firstMatch(in: "\u{600}5x")?.0, "\u{600}5x")
-    // A preceding non-ASCII scalar that does not join still matches: the guard
-    // rejects the quick path, not the character.
-    XCTAssertEqual(try Regex(#"(?<=\d)x"#).firstMatch(in: "\u{e9}5x")?.0, "x")
-    XCTAssertEqual(try Regex(#"(?<=[0-9])x"#).firstMatch(in: "\u{e9}5x")?.0, "x")
-
-    // MARK: Scalar-semantics `\w`
-
-    // The ASCII quick path counts a digit and `_` as word characters; the
-    // thorough path's scalar case tested `isAlphabetic` alone, so the two
-    // disagreed and the cross-check assert trapped. No combining mark is
-    // involved -- an ASCII digit or `_` in front of the `\w` is enough.
-    XCTAssertEqual(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "5x")?.0, "x")
-    XCTAssertEqual(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "_x")?.0, "x")
-    XCTAssertEqual(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "ax")?.0, "x")
-    // The lookbehind is tried at every start position, the end of the subject
-    // included, so this trapped on the trailing "5" rather than on the
-    // combining mark it appears to be about.
-    XCTAssertNil(try Regex(#"(?<=\w)5"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "e\u{301}5"))
-    // Reverse `\w` now answers exactly as forward `\w` does, which means the
-    // ASCII quick path's definition: a non-ASCII digit takes the thorough path
-    // and is still not a word character. Their forward analogues over ASCII
-    // cannot be asserted here, because forward `\w` in scalar semantics traps
-    // its own copy of this cross-check -- that half lives on `main` and is out
-    // of scope for this branch.
-    XCTAssertNil(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "\u{665}x"))
-    XCTAssertNil(try Regex(#"\wx"#).matchingSemantics(.unicodeScalar)
-      .firstMatch(in: "\u{665}x"))
-    // Default grapheme semantics goes through `Character.isWordCharacter` and
-    // agreed with the quick path all along.
-    firstMatchTest(#"(?<=\w)x"#, input: "5x", match: "x")
-    firstMatchTest(#"(?<=\w)x"#, input: "_x", match: "x")
-
-    // MARK: Reverse-matching paths that are correct today
+    // How the individual pieces of a lookbehind body -- literals, alternation,
+    // quantifiers, nested lookarounds, assertions -- come out when the body is
+    // emitted right-to-left.
 
     // Reversed literal emission: CR-LF ordering, the >= 5 byte `matchUTF8`
     // path, and the grapheme-boundary check at the literal's left edge.
@@ -2106,6 +1806,327 @@ extension RegexTests {
     // A lookbehind cannot reach past the start of the search bounds.
     firstMatchTest(#"^(?<=abc)"#, input: "abc", match: nil)
     firstMatchTest(#"(?<=abcdef)a"#, input: "abca", match: nil)
+
+    // MARK: - Edge cases in reverse matching
+    //
+    // Each `xfail: true` case below states the *correct* expectation, so it
+    // starts passing-as-expected-failure and will fail loudly once fixed.
+
+    // MARK: Character classes and atoms
+    //
+    // Classes, properties and set operations consumed in reverse, at both
+    // semantic levels, and with or without the ASCII fast paths.
+
+    // `reverseConsumeBy` regression cases: atoms and CCC ranges lower to a
+    // `ConsumeFunction`, which only knows how to run forwards. Reversed, the
+    // element *before* the position is the one handed to it.
+    firstMatchTest(#"(?<=[\p{L}])5"#, input: "a5", match: "5")
+    firstMatchTest(#"(?<=[[:alpha:]])5"#, input: "a5", match: "5")
+    firstMatchTest(#"(?<=[\p{L}&&[a-z]])5"#, input: "a5", match: "5")
+    firstMatchTest(#"(?<=\p{L})5"#, input: "a5", match: "5")
+    // Direction, stated directly: the only letter is *after* the lookbehind's
+    // position, so it must not succeed.
+    firstMatchTest(#"5(?<=[\p{L}])"#, input: "5y", match: nil)
+    // Failing the test must fail the lookbehind, not consume the wrong way.
+    firstMatchTest(#"(?<=[a-c])x"#, input: "zx", match: nil)
+    firstMatchTest(#"(?<=\p{L})5"#, input: "-5", match: nil)
+
+    // The inverting wrapper in `CharacterProperty.generateConsumer` too.
+    firstMatchTest(#"(?<=\P{L})5"#, input: "-5", match: "5")
+    firstMatchTest(#"(?<=\P{L})5"#, input: "a5", match: nil)
+
+    // Set-operation leaves reach `consumeBy` through `emitCCCMember` as well.
+    firstMatchTest(#"(?<=[[a-z]--[aeiou]])5"#, input: "b5", match: "5")
+    firstMatchTest(#"(?<=[[a-z]--[aeiou]])5"#, input: "a5", match: nil)
+
+    // The step back is by one *element*, so it follows the semantic level.
+    firstMatchTest(#"(?<=\p{L})5"#, input: "a5", match: "5",
+                   semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[a-c])5"#, input: "b5", match: "5",
+                   semanticLevel: .unicodeScalar)
+    // Under grapheme semantics the whole "e\u{301}" is the preceding element.
+    firstMatchTest(#"(?<=\p{L})5"#, input: "e\u{301}5", match: "5")
+
+    // The ASCII-bitset optimization is what normally hides this, so plain
+    // classes break too as soon as it doesn't apply. These throw from
+    // `_firstMatch`'s optimized/unoptimized cross-check.
+    firstMatchTest(#"(?<=abcdefgh[0-9])x"#, input: "abcdefgh1x", match: "x")
+    firstMatchTest(#"(?<=[0-9]abcdefgh)x"#, input: "1abcdefghx", match: "x")
+    firstMatchTest(#"(?<=[^0-9]{3})5"#, input: "abc5", match: "5")
+    firstMatchTest(#"(?<=[0-9])x"#, input: "1x", match: "x")
+    firstMatchTest(#"(?<=[a-c])x"#, input: "bx", match: "x")
+    firstMatchTest(#"(?<=[0-9]{2})x"#, input: "12x", match: "x")
+
+    // Inverted custom character classes emit their members as a zero-width
+    // test and then step back one element, so they are correct as soon as the
+    // members themselves consume backwards.
+    firstMatchTest(#"(?<=[^0-9])x"#, input: "ax", match: "x")
+    firstMatchTest(#"(?<=[^0-9])x"#, input: "1x", match: nil)
+    firstMatchTest(#"(?<=[^\p{L}])x"#, input: "1x", match: "x")
+    firstMatchTest(#"(?<=[^\p{L}])x"#, input: "ax", match: nil)
+
+    // MARK: Backreferences
+    //
+    // A backreference inside a lookbehind is matched backwards over the
+    // capture's text: numbered and named, single- and multi-element,
+    // negated, and unset.
+
+    // Backreferences match backwards inside a lookbehind. The lookbehind is
+    // zero-width, so the whole match still includes the capture group.
+    firstMatchTest(#"(a)(?<=\1)b"#, input: "ab", match: "ab")
+    firstMatchTest(#"(?<g>a)(?<=\k<g>)b"#, input: "ab", match: "ab")
+    firstMatchTest(#"(ab)(?<=\1)c"#, input: "abc", match: "abc")
+    // Direction shown directly: \1 is "x", the character *before* the position
+    // is "y", and the character *after* it is "x".
+    firstMatchTest(#"(x)y(?<=\1)"#, input: "xyx", match: nil)
+    // Multi-element backreferences walk back element by element.
+    firstMatchTest(#"(abc)(?<=\1)d"#, input: "xabcd", match: "abcd")
+    firstMatchTest(#"(abc)d(?<=\1)"#, input: "abcd", match: nil)
+    // A multi-scalar grapheme is one element under grapheme semantics and two
+    // under scalar semantics; both step back over the whole capture.
+    firstMatchTest(#"(e\u{301})(?<=\1)5"#, input: "e\u{301}5", match: "e\u{301}5")
+    firstMatchTest(
+      #"(e\u{301})(?<=\1)5"#, input: "e\u{301}5", match: "e\u{301}5",
+      semanticLevel: .unicodeScalar)
+    firstMatchTest(
+      #"(a)(?<=\1)b"#, input: "ab", match: "ab",
+      semanticLevel: .unicodeScalar)
+    // Negative lookbehind inverts the same test.
+    firstMatchTest(#"(a)(?<!\1)b"#, input: "ab", match: nil)
+    firstMatchTest(#"(x)y(?<!\1)"#, input: "xyx", match: "xy")
+    // An unset capture fails the backreference rather than matching empty.
+    firstMatchTest(#"(?:(z)|a)(?<=\1)b"#, input: "ab", match: nil)
+
+    // MARK: Grapheme clusters (`\X`)
+    //
+    // `\X` steps back over one whole cluster at either semantic level.
+
+    // `\X` spans a whole grapheme cluster under either semantic level, so
+    // reversed it backs up a whole cluster rather than a single scalar. `^`
+    // right after the step is what makes the difference observable.
+    firstMatchTest(#"(?<=^\X)5"#, input: "e\u{301}5", match: "5")
+    firstMatchTest(
+      #"(?<=^\X)5"#, input: "e\u{301}5", match: "5",
+      semanticLevel: .unicodeScalar)
+    // A cluster whose scalars are all non-ASCII, and the negative form.
+    firstMatchTest(
+      #"(?<=^\X)5"#, input: "\u{1F1FA}\u{1F1F8}5", match: "5",
+      semanticLevel: .unicodeScalar)
+    firstMatchTest(
+      #"(?<!\X)5"#, input: "e\u{301}5", match: nil,
+      semanticLevel: .unicodeScalar)
+    // Backing up exactly one cluster, not more: "x" is its own cluster, so `^`
+    // fails one cluster further back.
+    firstMatchTest(
+      #"(?<=^\X)5"#, input: "e\u{301}x5", match: nil,
+      semanticLevel: .unicodeScalar)
+    // CR-LF is a single cluster, so `\X` steps over both scalars.
+    firstMatchTest(
+      #"(?<=^\X)x"#, input: "\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    // Plain ASCII is unaffected in either direction.
+    firstMatchTest(
+      #"(?<=^\X)5"#, input: "a5", match: "5", semanticLevel: .unicodeScalar)
+    // Two clusters in a row is in the `_quickASCIICharacter` section below.
+
+    // MARK: Matching-option groups
+    //
+    // Option changes scope over the source left-to-right even though the
+    // body they sit in is emitted right-to-left.
+
+    // A lookbehind's components are emitted right-to-left, but an isolated
+    // matching-option group still scopes left-to-right over the source.
+    firstMatchTest(#"(?<=(?i)abc)x"#, input: "ABCx", match: "x")
+    firstMatchTest(#"(?<=(?s)a.)b"#, input: "a\nb", match: "b")
+    // `(?i)` case-folds "bc" only, not "a".
+    firstMatchTest(#"(?<=a(?i)bc)x"#, input: "aBCx", match: "x")
+    firstMatchTest(#"(?<=a(?i)bc)x"#, input: "Abcx", match: nil)
+    firstMatchTest(#"(?<=ab(?i)c)x"#, input: "abCx", match: "x")
+    firstMatchTest(#"(?<=ab(?i)c)x"#, input: "aBcx", match: nil)
+    // Several in a row, and one that undoes an earlier one.
+    firstMatchTest(#"(?<=(?i)ab(?-i)c)x"#, input: "ABcx", match: "x")
+    firstMatchTest(#"(?<=(?i)ab(?-i)c)x"#, input: "ABCx", match: nil)
+    // A change inside a group stays scoped to that group rather than leaking
+    // to the components that follow it.
+    firstMatchTest(#"(?<=(?:a(?i))bc)x"#, input: "abcx", match: "x")
+    firstMatchTest(#"(?<=(?:a(?i))bc)x"#, input: "aBCx", match: nil)
+    // The scoped spellings are emitted as a single node and are unaffected.
+    firstMatchTest(#"(?<=(?i:abc))x"#, input: "ABCx", match: "x")
+    firstMatchTest(#"(?<=(?s:a.))b"#, input: "a\nb", match: "b")
+
+    // MARK: Captures inside lookbehinds
+    //
+    // The range a capture records, how groups are numbered, and which
+    // repetition a greedy quantifier leaves in the capture.
+
+    // A capture inside a lookbehind ends at a position *before* it began, so
+    // `_StoredCapture.endCapture` has to order the two endpoints rather than
+    // forming `begin..<idx` directly.
+    firstMatchTest(#"(?<=(ab))c"#, input: "abc", match: "c")
+    firstMatchTest(#"(?<=(a|xy))c"#, input: "xyc", match: "c")
+    firstMatchTest(#"(?<=((a)b))c"#, input: "abc", match: "c")
+    // The whole match is zero-width past the lookbehind, so the captured text
+    // is the only evidence the range came out the right way round.
+    flatCaptureTest(#"(?<=(ab))c"#, ("abc", ["ab"]))
+    flatCaptureTest(#"(?<=(a|xy))c"#, ("xyc", ["xy"]))
+    flatCaptureTest(#"(?<=((a)b))c"#, ("abc", ["ab", "a"]))
+    // A capture repeated inside a lookbehind keeps the last iteration.
+    XCTAssertEqual(
+      try Regex(#"(?<=(?:(a)|(b))+)c"#).firstMatch(in: "abc")?[2].substring, "b")
+    // A negative lookbehind discards its captures.
+    flatCaptureTest(#"(?<!(z))c"#, ("abc", [nil]))
+
+    // Groups are numbered by their position in the pattern, not by the order
+    // reverse emission visits them in.
+    flatCaptureTest(#"(?<=(a)(b))c"#, ("abc", ["a", "b"]))
+    flatCaptureTest(
+      #"(?<=((a)(b))(c))d"#, ("abcd", ["ab", "a", "b", "c"]))
+    // Named lookups resolve through the same source-order numbering.
+    let named = try Regex(#"(?<=(?<x>a)(?<y>b))c"#).firstMatch(in: "abc")
+    XCTAssertEqual(named?["x"]?.substring, "a")
+    XCTAssertEqual(named?["y"]?.substring, "b")
+    // Groups on either side of a lookbehind keep counting across it.
+    flatCaptureTest(#"(a)(?<=(x)(a))(b)"#, ("xab", ["a", "x", "a", "b"]))
+
+    // A greedy quantifier inside a lookbehind gives repetitions back one at a
+    // time, most first, like its forward analogue. Each of the leading `a`s
+    // below only matches once the group has surrendered enough repetitions, so
+    // the capture shows the order the backtrack positions were replayed in.
+    // One case per quantifier payload: char, bitset, dot and builtin class.
+    flatCaptureTest(#"(?<=a(a+b))c"#, ("aaaabc", ["aaab"]))
+    flatCaptureTest(#"(?<=a([ab]+)b)c"#, ("aaaabc", ["aaa"]))
+    flatCaptureTest(#"(?<=a(.+)b)c"#, ("aaaabc", ["aaa"]))
+    flatCaptureTest(#"(?<=a(\w+)b)c"#, ("aaaabc", ["aaa"]))
+    flatCaptureTest(#"(?<=aa(a{1,3})b)c"#, ("aaaabc", ["aa"]))
+    // Reluctant quantifiers were already correct; they must stay minimal.
+    flatCaptureTest(#"(?<=a(a+?)b)c"#, ("aaaabc", ["a"]))
+    // Same again stepping by unicode scalars rather than characters.
+    flatCaptureTest(
+      #"(?<=a(a+b))c"#, ("aaaabc", ["aaab"]), semanticLevel: .unicodeScalar)
+
+    // MARK: Search bounds
+    //
+    // A lookbehind sees only text inside the search bounds: it cannot reach
+    // before the lower bound, and the bound may fall on or inside a cluster.
+
+    // The slice starts right after the "e\u{301}" cluster, so the lookbehind
+    // has nothing to look at.
+    let split = "e\u{301}5".dropFirst()
+    XCTAssertNil(try Regex(#"(?<=\w)\d"#).firstMatch(in: split))
+
+    // `character(before:limitedBy:isScalarSemantics:)`'s bounded fallback is
+    // only reached when `previous < start`, so it has to slice `start..<pos`;
+    // the `start..<previous` it used to form is inverted by construction and
+    // traps. Reached when the search lower bound is scalar-aligned but sits
+    // inside the grapheme preceding the match -- note that `"e\u{301}5"
+    // .dropFirst()` above does *not* reach it, because `dropFirst()` drops the
+    // whole "e\u{301}" grapheme.
+    let midGrapheme = Substring("e\u{301}5".unicodeScalars.dropFirst(1))
+    // The character before the "5", truncated at the bounds, is the partial
+    // cluster "\u{301}". Each of these agrees with its forward analogue on the
+    // same slice: `.`, `\X` and `\u{301}` all match "\u{301}5" forwards, and
+    // `\w` matches nothing.
+    XCTAssertEqual(
+      try Regex(#"(?<=.)\d"#).firstMatch(in: midGrapheme)?.0, "5")
+    XCTAssertEqual(
+      try Regex(#"(?<=\X)\d"#).firstMatch(in: midGrapheme)?.0, "5")
+    XCTAssertEqual(
+      try Regex(#"(?<=\u{301})\d"#).firstMatch(in: midGrapheme)?.0, "5")
+    XCTAssertNil(
+      try Regex(#"(?<=\w)\d"#).firstMatch(in: midGrapheme))
+    // The truncated cluster is all there is -- the lookbehind cannot reach the
+    // "e" that sits before the search bounds, and does not match a scalar it
+    // never saw.
+    XCTAssertNil(
+      try Regex(#"(?<=e\u{301})\d"#).firstMatch(in: midGrapheme))
+    XCTAssertNil(
+      try Regex(#"(?<=\u{302})\d"#).firstMatch(in: midGrapheme))
+
+    // Reverse matching is clamped to `searchBounds.lowerBound` rather than
+    // `subjectBounds.lowerBound`, so on repeat searches a lookbehind cannot see
+    // text an earlier match consumed. Both values below should be the second
+    // argument.
+    allMatchesTest(
+      #"(?<=aa)a"#, input: "aaaa", matches: ["a", "a"], xfail: true)
+    XCTAssertNotEqual(
+      try "aaaa".replacing(Regex(#"(?<=aa)a"#), with: "Z"), "aaZZ")
+
+    // MARK: `_quickASCIICharacter(before:limitedBy:)`
+
+    // Under scalar semantics the position can sit inside a grapheme cluster, so
+    // the ASCII scalar ending there is not a whole `Character`. The helper's
+    // trailing assert looked the character up anyway and saw the containing
+    // cluster, so these used to trap rather than mismatch.
+    firstMatchTest(
+      #"(?<=^\X\X)5"#, input: "e\u{301}e\u{301}5", match: "5",
+      semanticLevel: .unicodeScalar)
+    firstMatchTest(
+      #"(?<=^\X)5"#, input: "\u{e9}e\u{301}5e\u{e9}", match: nil,
+      semanticLevel: .unicodeScalar)
+    // The same assert, reached by splitting a CR-LF pair: the scalar before the
+    // position is the CR, whose `Character` is the whole "\r\n".
+    firstMatchTest(#"(?<=\R)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=\v)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=\s)x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[\n])x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=.)x"#, input: "a\r\nx", match: nil, semanticLevel: .unicodeScalar)
+    firstMatchTest(#"(?<=[\r\n]{2})x"#, input: "a\r\nx", match: "x", semanticLevel: .unicodeScalar)
+
+    // Reversed, the byte before that ASCII scalar is the last byte of the
+    // preceding scalar, so the helper's `_isSub300StartingByte` guard decided
+    // nothing. It matters for a Prepend scalar such as U+0600, which joins the
+    // ASCII character after it into one cluster: "\u{600}5" is a single
+    // `Character`, so the character before the "x" is that cluster, not the
+    // "5". These are wrong answers in release, at the default semantic level.
+    firstMatchTest(#"(?<=\d)x"#, input: "\u{600}5x", match: nil)
+    firstMatchTest(#"(?<=[0-9])x"#, input: "\u{600}5x", match: nil)
+    firstMatchTest(#"(?<=^.)x"#, input: "\u{600}5x", match: "x")
+    firstMatchTest(#"(?<=\u{600}5)x"#, input: "\u{600}5x", match: "x")
+    // Each agrees with its forward analogue over the same input.
+    firstMatchTest(#"\dx"#, input: "\u{600}5x", match: nil)
+    firstMatchTest(#"[0-9]x"#, input: "\u{600}5x", match: nil)
+    firstMatchTest(#"^.x"#, input: "\u{600}5x", match: "\u{600}5x")
+    // A preceding non-ASCII scalar that does not join still matches: the guard
+    // rejects the quick path, not the character.
+    firstMatchTest(#"(?<=\d)x"#, input: "\u{e9}5x", match: "x")
+    firstMatchTest(#"(?<=[0-9])x"#, input: "\u{e9}5x", match: "x")
+
+    // MARK: Scalar-semantics `\w`
+
+
+    // Under scalar semantics a non-ASCII word character takes the thorough
+    // path and still matches.
+    firstMatchTest(#"(?<=\w)\d"#, input: "\u{FC}5", match: "5", semanticLevel: .unicodeScalar)
+
+    // The ASCII quick path counts a digit and `_` as word characters; the
+    // thorough path's scalar case tested `isAlphabetic` alone, so the two
+    // disagreed and the cross-check assert trapped. No combining mark is
+    // involved -- an ASCII digit or `_` in front of the `\w` is enough.
+    firstMatchTest(
+      #"(?<=\w)x"#, input: "5x", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(
+      #"(?<=\w)x"#, input: "_x", match: "x", semanticLevel: .unicodeScalar)
+    firstMatchTest(
+      #"(?<=\w)x"#, input: "ax", match: "x", semanticLevel: .unicodeScalar)
+    // The lookbehind is tried at every start position, the end of the subject
+    // included, so this trapped on the trailing "5" rather than on the
+    // combining mark it appears to be about.
+    firstMatchTest(
+      #"(?<=\w)5"#, input: "e\u{301}5", match: nil,
+      semanticLevel: .unicodeScalar)
+    // Reverse `\w` now answers exactly as forward `\w` does, which means the
+    // ASCII quick path's definition: a non-ASCII digit takes the thorough path
+    // and is still not a word character. Their forward analogues over ASCII
+    // cannot be asserted here, because forward `\w` in scalar semantics traps
+    // its own copy of this cross-check -- that half lives on `main` and is out
+    // of scope for this branch.
+    XCTAssertNil(try Regex(#"(?<=\w)x"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "\u{665}x"))
+    XCTAssertNil(try Regex(#"\wx"#).matchingSemantics(.unicodeScalar)
+      .firstMatch(in: "\u{665}x"))
+    // Default grapheme semantics goes through `Character.isWordCharacter` and
+    // agreed with the quick path all along.
+    firstMatchTest(#"(?<=\w)x"#, input: "5x", match: "x")
+    firstMatchTest(#"(?<=\w)x"#, input: "_x", match: "x")
   }
 
   func testMatchAnchors() throws {
