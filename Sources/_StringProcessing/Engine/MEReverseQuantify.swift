@@ -134,7 +134,9 @@ extension Processor {
     if let savePointRange {
       assert(produceSavePointRange)
       savePoints.append(makeQuantifiedSavePoint(
-        savePointRange, isScalarSemantics: payload.isScalarSemantics))
+        savePointRange,
+        isScalarSemantics: payload.isScalarSemantics,
+        isReverse: true))
     }
     currentPosition = previous
     return true
@@ -166,6 +168,12 @@ extension String {
     // before any match happens. Always ends before the final match, since
     // the final match is what is tried without backtracking. An empty range
     // is valid and means a single backtracking position at rangeStart.
+    //
+    // Unlike the forward loop, positions decrease as repetitions grow, so the
+    // range's lower bound is the most-repetitions fallback and its upper bound
+    // is the minimum-repetitions position. Reverse save points are flagged
+    // `isReverse` so that `takePositionFromQuantifiedRange` consumes the range
+    // from the lower bound up, keeping greedy backtracking most-first.
     var rangeStart = currentPosition
     var rangeEnd = currentPosition
 

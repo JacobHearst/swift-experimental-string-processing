@@ -21,6 +21,12 @@ extension Processor {
     //        points. We should try to separate out the concerns better.
     var isScalarSemantics: Bool
 
+    // Whether `quantifiedRange` was produced by reverse matching, in which case
+    // positions shrink as repetitions grow, so the range is walked from its
+    // lower bound upwards. Like `isScalarSemantics`, only used for quantifier
+    // save points.
+    var isReverse: Bool
+
     // FIXME: Save minimal info (e.g. stack position and
     // perhaps current start)
     var captureEnds: [_StoredCapture]
@@ -51,6 +57,27 @@ extension Processor {
     mutating func takePositionFromQuantifiedRange(_ input: Input) {
       assert(isQuantified)
       let range = quantifiedRange!
+
+      // Greedy backtracking tries the most repetitions first. Reverse matching
+      // moves backwards, so that is the lower bound and we walk up from there.
+      if isReverse {
+        pos = range.lowerBound
+        if range.isEmpty {
+          // Becomes a normal save point
+          quantifiedRange = nil
+          return
+        }
+
+        let newLower: Position
+        if isScalarSemantics {
+          newLower = input.unicodeScalars.index(after: range.lowerBound)
+        } else {
+          newLower = input.index(after: range.lowerBound)
+        }
+        quantifiedRange = newLower..<range.upperBound
+        return
+      }
+
       pos = range.upperBound
       if range.isEmpty {
         // Becomes a normal save point
@@ -77,6 +104,7 @@ extension Processor {
       pos: currentPosition,
       quantifiedRange: nil,
       isScalarSemantics: false,
+      isReverse: false,
       captureEnds: storedCaptures,
       intRegisters: registers.ints,
       posRegisters: registers.positions)
@@ -90,6 +118,7 @@ extension Processor {
       pos: nil,
       quantifiedRange: nil,
       isScalarSemantics: false,
+      isReverse: false,
       captureEnds: storedCaptures,
       intRegisters: registers.ints,
       posRegisters: registers.positions)
@@ -97,13 +126,15 @@ extension Processor {
 
   func makeQuantifiedSavePoint(
     _ range: Range<Position>,
-    isScalarSemantics: Bool
+    isScalarSemantics: Bool,
+    isReverse: Bool
   ) -> SavePoint {
     SavePoint(
       pc: controller.pc + 1,
       pos: nil,
       quantifiedRange: range,
       isScalarSemantics: isScalarSemantics,
+      isReverse: isReverse,
       captureEnds: storedCaptures,
       intRegisters: registers.ints,
       posRegisters: registers.positions)

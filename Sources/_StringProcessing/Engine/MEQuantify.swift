@@ -145,7 +145,9 @@ extension Processor {
     if let savePointRange {
       assert(produceSavePointRange)
       savePoints.append(makeQuantifiedSavePoint(
-        savePointRange, isScalarSemantics: payload.isScalarSemantics))
+        savePointRange,
+        isScalarSemantics: payload.isScalarSemantics,
+        isReverse: false))
     }
     currentPosition = next
     return true

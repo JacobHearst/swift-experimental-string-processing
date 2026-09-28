@@ -1906,6 +1906,29 @@ extension RegexTests {
     XCTAssertNil(
       try Regex(#"(?<!(z))c"#).firstMatch(in: "abc")?[1].substring)
 
+    // A greedy quantifier inside a lookbehind gives repetitions back one at a
+    // time, most first, like its forward analogue. Each of the leading `a`s
+    // below only matches once the group has surrendered enough repetitions, so
+    // the capture shows the order the backtrack positions were replayed in.
+    // One case per quantifier payload: char, bitset, dot and builtin class.
+    XCTAssertEqual(
+      try Regex(#"(?<=a(a+b))c"#).firstMatch(in: "aaaabc")?[1].substring, "aaab")
+    XCTAssertEqual(
+      try Regex(#"(?<=a([ab]+)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aaa")
+    XCTAssertEqual(
+      try Regex(#"(?<=a(.+)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aaa")
+    XCTAssertEqual(
+      try Regex(#"(?<=a(\w+)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aaa")
+    XCTAssertEqual(
+      try Regex(#"(?<=aa(a{1,3})b)c"#).firstMatch(in: "aaaabc")?[1].substring, "aa")
+    // Reluctant quantifiers were already correct; they must stay minimal.
+    XCTAssertEqual(
+      try Regex(#"(?<=a(a+?)b)c"#).firstMatch(in: "aaaabc")?[1].substring, "a")
+    // Same again stepping by unicode scalars rather than characters.
+    XCTAssertEqual(
+      try Regex(#"(?<=a(a+b))c"#).matchingSemantics(.unicodeScalar)
+        .firstMatch(in: "aaaabc")?[1].substring, "aaab")
+
     // `character(before:limitedBy:isScalarSemantics:)`'s bounded fallback is
     // only reached when `previous < start`, so it has to slice `start..<pos`;
     // the `start..<previous` it used to form is inverted by construction and
