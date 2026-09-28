@@ -1667,7 +1667,7 @@ extension RegexTests {
       #"(?!\s)^dispatch"#, input: "dispatchWithName", match: "dispatch")
   }
 
-  func testLookbehinds() {
+  func testLookbehinds() throws {
     firstMatchTest(
       #"(?<=USD)\d+"#, input: "Price: USD100", match: "100")
     firstMatchTest(
@@ -1905,6 +1905,27 @@ extension RegexTests {
     // A negative lookbehind discards its captures.
     XCTAssertNil(
       try Regex(#"(?<!(z))c"#).firstMatch(in: "abc")?[1].substring)
+
+    // Groups are numbered by their position in the pattern, not by the order
+    // reverse emission visits them in.
+    let siblings = try Regex(#"(?<=(a)(b))c"#).firstMatch(in: "abc")
+    XCTAssertEqual(siblings?[1].substring, "a")
+    XCTAssertEqual(siblings?[2].substring, "b")
+    let nestedSiblings = try Regex(#"(?<=((a)(b))(c))d"#).firstMatch(in: "abcd")
+    XCTAssertEqual(nestedSiblings?[1].substring, "ab")
+    XCTAssertEqual(nestedSiblings?[2].substring, "a")
+    XCTAssertEqual(nestedSiblings?[3].substring, "b")
+    XCTAssertEqual(nestedSiblings?[4].substring, "c")
+    // Named lookups resolve through the same source-order numbering.
+    let named = try Regex(#"(?<=(?<x>a)(?<y>b))c"#).firstMatch(in: "abc")
+    XCTAssertEqual(named?["x"]?.substring, "a")
+    XCTAssertEqual(named?["y"]?.substring, "b")
+    // Groups on either side of a lookbehind keep counting across it.
+    let surrounding = try Regex(#"(a)(?<=(x)(a))(b)"#).firstMatch(in: "xab")
+    XCTAssertEqual(surrounding?[1].substring, "a")
+    XCTAssertEqual(surrounding?[2].substring, "x")
+    XCTAssertEqual(surrounding?[3].substring, "a")
+    XCTAssertEqual(surrounding?[4].substring, "b")
 
     // A greedy quantifier inside a lookbehind gives repetitions back one at a
     // time, most first, like its forward analogue. Each of the leading `a`s

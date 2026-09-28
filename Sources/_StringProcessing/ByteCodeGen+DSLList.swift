@@ -791,14 +791,33 @@ fileprivate extension Compiler.ByteCodeGen {
       applyOptionsVisibleToLaterComponents(in: list[range])
     }
 
+    // Capture registers are handed out in emission order, but everything that
+    // consumes them (the capture list, backreferences, named lookups, output
+    // construction) indexes them by source position. Emitting the components
+    // back to front would number sibling groups back to front too, so record
+    // the register each component starts at up front and restore it before
+    // emitting the component.
+    let firstCaptureRegister = builder.nextCaptureRegister.rawValue
+    var captureRegisterStarts: [Int] = []
+    captureRegisterStarts.reserveCapacity(componentCount)
+    var registerCount = firstCaptureRegister
+    for range in boundaries {
+      captureRegisterStarts.append(registerCount)
+      registerCount += list[range].filter {
+        if case .capture = $0 { return true } else { return false }
+      }.count
+    }
+
     let optionsAfterConcatenation = options
 
     for i in boundaries.indices.reversed() {
       options = optionStates[i]
+      builder.nextCaptureRegister = CaptureRegister(captureRegisterStarts[i])
       var child = list[boundaries[i]]
       try emitNode(&child)
     }
     options = optionsAfterConcatenation
+    builder.nextCaptureRegister = CaptureRegister(registerCount)
 
     list = list[position...]
   }
